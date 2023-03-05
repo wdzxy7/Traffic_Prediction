@@ -57,6 +57,7 @@ def deal_bj():
     mmn = MinMaxNormalization()
     mmn.fit(all_data)
     mmn_all_data = [mmn.transform(d) for d in all_data]
+    all_time = np.concatenate(all_time)
     # spilt data
     len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
     train_data = mmn_all_data[0: len_train]
@@ -66,15 +67,15 @@ def deal_bj():
     val_data = mmn_all_data[-len_val:]
     val_time = all_time[-len_val:]
     # save data
-    np.save(os.path.join(save_path, 'raw_all_data'), all_data)
-    np.save(os.path.join(save_path, 'all_data'), mmn_all_data)
-    np.save(os.path.join(save_path, 'all_time'), all_time)
-    np.save(os.path.join(save_path, 'train_data'), train_data)
-    np.save(os.path.join(save_path, 'train_time'), train_time)
-    np.save(os.path.join(save_path, 'test_data'), test_data)
-    np.save(os.path.join(save_path, 'test_data'), test_time)
-    np.save(os.path.join(save_path, 'val_data'), val_data)
-    np.save(os.path.join(save_path, 'val_data'), val_time)
+    np.save(os.path.join(bj_save_path, 'raw_all_data'), all_data)
+    np.save(os.path.join(bj_save_path, 'all_data'), mmn_all_data)
+    np.save(os.path.join(bj_save_path, 'all_time'), all_time)
+    np.save(os.path.join(bj_save_path, 'train_data'), train_data)
+    np.save(os.path.join(bj_save_path, 'train_time'), train_time)
+    np.save(os.path.join(bj_save_path, 'test_data'), test_data)
+    np.save(os.path.join(bj_save_path, 'test_time'), test_time)
+    np.save(os.path.join(bj_save_path, 'val_data'), val_data)
+    np.save(os.path.join(bj_save_path, 'val_time'), val_time)
     print('data process over')
 
 
