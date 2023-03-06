@@ -20,7 +20,6 @@ class FlowDataset(data.Dataset):
         self.load_data()
 
     def __getitem__(self, index):
-        print(index, self.data_len)
         end_index = index + self.wind_size
         x = self.flow_data[index: end_index]
         y = self.flow_data[end_index: end_index + 1]
