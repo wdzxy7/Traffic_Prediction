@@ -1,10 +1,27 @@
+import os
 import torch
 import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
+import torch.distributed as dist
 from test_module import TestModule
+from torch.nn.parallel import DistributedDataParallel as ddp
 
+
+def init_distributed_mode(args):
+    # 如果是单机多卡的机器，WORLD_SIZE代表有几块GPU，RANK和LOCAL_RANK代表第几块GPU
+    if'SLURM_PROCID'in os.environ:
+        args.rank = int(os.environ['SLURM_PROCID'])
+        args.gpu = args.rank % torch.cuda.device_count()
+    else:
+        print('Not using distributed mode')
+        args.distributed = False
+        return
+    args.distributed = True
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = 'nccl'
+    dist.barrier()
 
 def load_data():
     train_dataset = FlowDataset('TaxiBJ', data_type='train')
@@ -19,7 +36,9 @@ def load_data():
 def train():
     train_loader, val_loader, test_loader = load_data()
     device = torch.device(0)
-    model = TestModule(7 * 48, batch_size, 3, dila_rate_list=None, kernel_size=3, resnet_layers=resnet_layers)
+    model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=3, dila_rate_list=None, device=device,
+                       tcn_kernel_size=tcn_kernel_size,  resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
+                       data_h=data_h, data_w=data_w)
     model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -82,8 +101,14 @@ def show_parameter(model):
 
 
 if __name__ == '__main__':
-    batch_size = 32
-    resnet_layers = 10
+    gpus = [0, 1, 2, 3, 4, 5, 6, 7]
+    torch.cuda.set_device('cuda:{}'.format(gpus[0]))
+    batch_size = 8
+    resnet_layers = 4
+    tcn_kernel_size = 3
+    res_kernel_size = 3
+    data_h = 32
+    data_w = 32
     lr = 6e-4
     epochs = 50
     train()

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 class TemporalResCovBlock(nn.Module):
     def __init__(self, dila_rate, padding, causal_cov_size=3, dila_stride=1, in_channel=2, out_channel=2,
-                 resnet_layers=5):
+                 resnet_layers=5, tcn_kernel_size=3, res_kernel_size=3, data_h=32, data_w=32):
         super(TemporalResCovBlock, self).__init__()
         # parameter
         self.dila_rate = dila_rate
@@ -15,28 +15,46 @@ class TemporalResCovBlock(nn.Module):
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.resnet_layers = resnet_layers
+        self.tcn_kernel_size = tcn_kernel_size
+        self.res_kernel_size = res_kernel_size
+        self.data_h = data_h
+        self.data_w = data_w
+        self.h_pad, self.w_pad = self.cal_padding()
         # module
-        # 3 -> 1
-        self.dila_conv = nn.Conv3d(self.in_channel, self.out_channel, kernel_size=(3, 3, 3), padding=(0, 1, 1),
-                                   stride=(1, 1, 1), dilation=(dila_rate, 1, 1), bias=False)
+        # tcn 3 -> 1
+        self.dila_conv = nn.Conv3d(self.in_channel, self.out_channel,
+                                   kernel_size=(self.causal_cov_size, self.tcn_kernel_size, self.tcn_kernel_size),
+                                   padding=(0, self.h_pad, self.w_pad), stride=(1, 1, 1), dilation=(dila_rate, 1, 1),
+                                   bias=False)
         self.bn = nn.BatchNorm3d(self.out_channel)
         self.relu = nn.LeakyReLU(inplace=True)
-        self.resUnit = ResUnit(out_channel, out_channel)
+        self.resUnit = ResUnit(out_channel, out_channel, self.data_h, self.data_w, self.res_kernel_size)
 
     def forward(self, inputs):
         output = self.dila_conv(inputs)
         output = self.bn(output)
         output = self.relu(output)
-        print(output.shape)
         for i in range(self.resnet_layers):
             output = self.resUnit(output)
         return output
 
+    def cal_padding(self):
+        h_pad = (self.data_h - 1) * 1 + self.tcn_kernel_size - self.data_h
+        w_pad = (self.data_w - 1) * 1 + self.tcn_kernel_size - self.data_w
+        return int(np.ceil(h_pad / 2)), int(np.ceil(w_pad / 2))
+
 
 class ResUnit(nn.Module):
-    def __init__(self, in_channel, out_channel):
+    def __init__(self, in_channel, out_channel, data_h, data_w, res_kernel_size):
         super(ResUnit, self).__init__()
-        self.conv = nn.Conv3d(in_channel, out_channel, kernel_size=(1, 3, 3), padding=(0, 1, 1), stride=(1, 1, 1))
+        self.data_h = data_h
+        self.data_w = data_w
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+        self.res_kernel_size = res_kernel_size
+        self.h_pad, self.w_pad = self.cal_padding()
+        self.conv = nn.Conv3d(in_channel, out_channel, kernel_size=(1, 3, 3), padding=(0, self.h_pad, self.w_pad),
+                              stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(in_channel)
         self.relu = nn.LeakyReLU(inplace=True)
 
@@ -46,27 +64,37 @@ class ResUnit(nn.Module):
         output = self.relu(output)
         return output + inputs
 
+    def cal_padding(self):
+        h_pad = (self.data_h - 1) * 1 + self.res_kernel_size - self.data_h
+        w_pad = (self.data_w - 1) * 1 + self.res_kernel_size - self.data_w
+        return int(np.ceil(h_pad / 2)), int(np.ceil(w_pad / 2))
+
 
 class TemporalConvNet(nn.Module):
-    def __init__(self, dila_rate_list=None, dila_stride=1, kernel_size=3, wind_size=7*48, resnet_layers=5,
-                 in_channel=None, out_channel=None):
+    def __init__(self, dila_rate_list=None, dila_stride=1, tcn_kernel_size=3, wind_size=7*48, resnet_layers=5,
+                 in_channel=None, out_channel=None, device=None, res_kernel_size=3, data_h=32, data_w=32):
         super(TemporalConvNet, self).__init__()
         if dila_rate_list is None:
             dila_rate_list = [1, 1, 2, 4, 8, 8, 16, 32, 32, 64]
+        self.device = device
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.causal_cov_size = 3
         self.causal_layer = len(dila_rate_list)
-        self.kernel_size = kernel_size
+        self.tcn_kernel_size = tcn_kernel_size
         self.wind_size = wind_size
         self.dila_rate_list = dila_rate_list
         self.padding_rate = self.cal_padding()
         self.dila_stride = dila_stride
         self.resnet_layers = resnet_layers
         self.TemporalRes_blocks = nn.ModuleList()
+        self.res_kernel_size = res_kernel_size
+        self.data_h = data_h
+        self.data_w = data_w
         for dila_rate, padding, c_in, c_out in zip(self.dila_rate_list, self.padding_rate, self.in_channel, self.out_channel):
             self.TemporalRes_blocks.append(TemporalResCovBlock(dila_rate, padding, self.causal_cov_size, self.dila_stride,
-                                                               c_in, c_out, self.resnet_layers))
+                                                               c_in, c_out, self.resnet_layers, self.tcn_kernel_size,
+                                                               self.res_kernel_size, self.data_h, self.data_w))
 
     def forward(self, inputs):
         # padding data seq from 336 to 337 before training
@@ -80,6 +108,7 @@ class TemporalConvNet(nn.Module):
         shapes = list(inputs.shape)
         shapes[2] = 1
         pad_tensor = torch.zeros(shapes)
+        pad_tensor = pad_tensor.to(self.device)
         padded_inputs = torch.cat((inputs, pad_tensor), 2)
         return padded_inputs
 
@@ -120,11 +149,12 @@ class SeqAndExcNet(nn.Module):
 
 
 class TestModule(nn.Module):
-    def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, dila_rate_list=None, kernel_size=3, resnet_layers=5,
-                 in_channel=None, out_channel=None):
+    def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, dila_rate_list=None, tcn_kernel_size=3, resnet_layers=5,
+                 in_channel=None, out_channel=None, device=None, res_kernel_size=3, data_h=32, data_w=32):
         super(TestModule, self).__init__()
         # parameter
         # global
+        self.device = device
         self.batch_size = batch_size
         self.wind_size = wind_size
         self.sqe_rate = sqe_rate
@@ -139,12 +169,16 @@ class TestModule(nn.Module):
             self.out_channel = out_channel
         self.dila_stride = 1  # static
         self.dila_rate_list = dila_rate_list
-        self.kernel_size = kernel_size
+        self.tcn_kernel_size = tcn_kernel_size
+        self.res_kernel_size = res_kernel_size
+        self.data_h = data_h
+        self.data_w = data_w
         # resnet
         self.resnet_layers = resnet_layers
         self.SEN_Net = SeqAndExcNet(self.wind_size, self.batch_size, self.sqe_rate)
-        self.Tempora_Net = TemporalConvNet(None, self.dila_rate_list, self.dila_stride, self.kernel_size, self.resnet_layers,
-                                           self.in_channel, self.out_channel)
+        self.Tempora_Net = TemporalConvNet(dila_rate_list=self.dila_rate_list, dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
+                                           wind_size=self.wind_size, resnet_layers=self.resnet_layers, in_channel=self.in_channel, out_channel=self.out_channel,
+                                           device=self.device, res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
 
     def forward(self, inputs, ext):
         sened_inputs = self.SEN_Net(inputs)
