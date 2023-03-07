@@ -1,27 +1,13 @@
 import os
 import torch
+import argparse
 import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
 import torch.distributed as dist
 from test_module import TestModule
-from torch.nn.parallel import DistributedDataParallel as ddp
-
-
-def init_distributed_mode(args):
-    # 如果是单机多卡的机器，WORLD_SIZE代表有几块GPU，RANK和LOCAL_RANK代表第几块GPU
-    if'SLURM_PROCID'in os.environ:
-        args.rank = int(os.environ['SLURM_PROCID'])
-        args.gpu = args.rank % torch.cuda.device_count()
-    else:
-        print('Not using distributed mode')
-        args.distributed = False
-        return
-    args.distributed = True
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    dist.barrier()
+from torch.nn.parallel import DataParallel
 
 
 def load_data():
@@ -39,7 +25,11 @@ def train():
     model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=3, dila_rate_list=None,
                        tcn_kernel_size=tcn_kernel_size,  resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
                        data_h=data_h, data_w=data_w)
-    model.to(device)
+    device_ids = list(map(int, args.device_ids.split(',')))
+    device = torch.device('cuda:{}'.format(device_ids[0]))
+    model = model.to(device)
+    model = DataParallel(model, device_ids=device_ids, output_device=device_ids[0])
+
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     stepLR = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
@@ -55,11 +45,11 @@ def train():
             loss.backward()
             optimizer.step()
             print('\tTRAINDATE:', '\tEpoch:{}\t\t loss:{}'.format(i, loss.item()))
-        test_model(i, model, criterion, val_loader, test_loader)
+        test_model(i, model, criterion, val_loader, test_loader, device)
         stepLR.step()
 
 
-def test_model(i, model, criterion, val_loader, test_loader):
+def test_model(i, model, criterion, val_loader, test_loader, device):
     with torch.no_grad():
         model.eval()
         val_RMSE, loss = cal_rmse(model, criterion, val_loader, device)
@@ -68,7 +58,7 @@ def test_model(i, model, criterion, val_loader, test_loader):
         print('\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, test_RMSE, loss))
 
 
-def cal_rmse(model, criterion, val_loader):
+def cal_rmse(model, criterion, val_loader, device):
     total_loss = []
     model.eval()
     count_all_pred_val = 0
@@ -101,9 +91,11 @@ def show_parameter(model):
 
 
 if __name__ == '__main__':
-    device = torch.device(1)
+    parser = argparse.ArgumentParser(description='Flow Parallel Training')
+    parser.add_argument('--device_ids', type=str, default='0')
+    args = parser.parse_args()
     batch_size = 5
-    resnet_layers = 3
+    resnet_layers = 10
     tcn_kernel_size = 3
     res_kernel_size = 3
     data_h = 32
