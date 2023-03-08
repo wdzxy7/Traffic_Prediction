@@ -54,7 +54,7 @@ class ResUnit(nn.Module):
         self.res_kernel_size = res_kernel_size
         self.h_pad, self.w_pad = self.cal_padding()
         # in channel == out channel
-        self.conv = nn.Conv3d(in_channel, out_channel, kernel_size=(in_channel, self.res_kernel_size, self.res_kernel_size),
+        self.conv = nn.Conv3d(in_channel, out_channel, kernel_size=(1, self.res_kernel_size, self.res_kernel_size),
                               padding=(0, self.h_pad, self.w_pad), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(in_channel)
         self.relu = nn.LeakyReLU(inplace=True)
@@ -72,11 +72,14 @@ class ResUnit(nn.Module):
 
 
 class TemporalConvNet(nn.Module):
-    def __init__(self, dila_rate_list=None, dila_stride=1, tcn_kernel_size=3, wind_size=7*48, resnet_layers=5,
+    def __init__(self, dila_rate_type='week', dila_stride=1, tcn_kernel_size=3, wind_size=7*48, resnet_layers=5,
                  in_channel=None, out_channel=None, res_kernel_size=3, data_h=32, data_w=32):
         super(TemporalConvNet, self).__init__()
-        if dila_rate_list is None:
+        self.dila_rate_type = dila_rate_type
+        if dila_rate_type == 'week':
             dila_rate_list = [1, 1, 2, 4, 8, 8, 16, 32, 32, 64]
+        else:
+            dila_rate_list = [1, 1, 2, 2, 4, 8, 8]
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.causal_cov_size = 3
@@ -102,11 +105,16 @@ class TemporalConvNet(nn.Module):
         for i in range(len(self.dila_rate_list)):
             output = self.TemporalRes_blocks[i](padded_inputs)
             padded_inputs = output
+
         return output
 
     def pad_input(self, inputs):
-        shapes = list(inputs.shape)
-        shapes[2] = 1
+        if self.dila_rate_type == 'week':
+            shapes = list(inputs.shape)
+            shapes[2] = 1
+        else:
+            shapes = list(inputs.shape)
+            shapes[2] = 5
         pad_tensor = torch.zeros(shapes)
         pad_tensor = pad_tensor.to(device=inputs.device)
         padded_inputs = torch.cat((inputs, pad_tensor), 2)
@@ -121,10 +129,9 @@ class TemporalConvNet(nn.Module):
 
 
 class SeqAndExcNet(nn.Module):
-    def __init__(self, wind_size, batch_size, r):
+    def __init__(self, wind_size, r):
         super(SeqAndExcNet, self).__init__()
         self.wind_size = wind_size
-        self.batch_size = batch_size
         mid_layer = int(np.ceil(self.wind_size / r))
         self.squeeze_layer = nn.AdaptiveAvgPool3d((wind_size, 1, 1))
         self.linear1 = nn.Linear(wind_size, mid_layer)
@@ -134,7 +141,8 @@ class SeqAndExcNet(nn.Module):
 
     def forward(self, inputs):
         output = self.squeeze_layer(inputs)
-        output = output.view(self.batch_size, 2, self.wind_size)
+        batch_size = inputs.shape[0]
+        output = output.view(batch_size, 2, self.wind_size)
         output1, output2 = output.chunk(2, 1)
         outputs = [output1, output2]
         res_out = []
@@ -144,13 +152,13 @@ class SeqAndExcNet(nn.Module):
             c_out = self.linear2(c_out)
             c_out = self.sigmoid(c_out)
             res_out.append(c_out)
-        res_out = torch.stack(res_out, dim=1).view(self.batch_size, 2, self.wind_size, 1, 1)
+        res_out = torch.stack(res_out, dim=1).view(batch_size, 2, self.wind_size, 1, 1)
         return torch.mul(inputs, res_out)
 
 
 class CurrentNet(nn.Module):
     def __init__(self, data_h, data_w, kernel_size, resnet_layers):
-        super(CurrentNet, self, ).__init__()
+        super(CurrentNet, self).__init__()
         self.resnet_layers = resnet_layers
         self.resUnit = ResUnit(2, 2, data_h, data_w, kernel_size)
 
@@ -160,9 +168,25 @@ class CurrentNet(nn.Module):
         return output
 
 
+class FusionNet(nn.Module):
+    def __init__(self, data_h, data_w):
+        super(FusionNet, self).__init__()
+        self.data_h = data_h
+        self.data_w = data_w
+        self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        self.bn = nn.BatchNorm3d(2)
+        self.relu = nn.LeakyReLU(inplace=True)
+
+    def forward(self, week, day, current):
+        inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+        output = self.bn(inputs)
+        output = self.cov(output)
+        return output
+
+
 class TestModule(nn.Module):
-    def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, dila_rate_list=None, tcn_kernel_size=3, tcn_resnet_layers=5,
-                 current_resnet_layer=10, trend_in_channel=None, trend_out_channel=None, res_kernel_size=3, data_h=32, data_w=32,
+    def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, dila_rate_list=None, tcn_kernel_size=3, week_resnet_layers=5,
+                 current_resnet_layer=10, week_in_channel=None, week_out_channel=None, res_kernel_size=3, data_h=32, data_w=32,
                  day_in_channel=None, day_out_channel=None):
         super(TestModule, self).__init__()
         # parameter
@@ -172,11 +196,11 @@ class TestModule(nn.Module):
         self.day_size = 48
         self.sqe_rate = sqe_rate
         # tcn
-        self.trend_in_channel = None
-        self.trend_out_channel = None
+        self.week_in_channel = None
+        self.week_out_channel = None
         self.day_in_channel = None
         self.day_out_channel = None
-        self.set_channel(trend_in_channel, trend_out_channel, day_in_channel, day_out_channel)
+        self.set_channel(week_in_channel, week_out_channel, day_in_channel, day_out_channel)
         self.dila_stride = 1  # static
         self.dila_rate_list = dila_rate_list
         self.tcn_kernel_size = tcn_kernel_size
@@ -184,47 +208,50 @@ class TestModule(nn.Module):
         self.data_h = data_h
         self.data_w = data_w
         # resnet
-        self.tcn_resnet_layers = tcn_resnet_layers
+        self.week_resnet_layers = week_resnet_layers
         self.current_resnet_layer = current_resnet_layer
-        self.SEN_Net = SeqAndExcNet(self.wind_size, self.batch_size, self.sqe_rate)
-        self.Trend_Tempora_Net = TemporalConvNet(dila_rate_list=self.dila_rate_list, dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
-                                                 wind_size=self.wind_size, resnet_layers=self.tcn_resnet_layers, in_channel=self.trend_in_channel, out_channel=self.trend_out_channel,
-                                                 res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
-        self.Day_Tempora_Net = TemporalConvNet(dila_rate_list=self.dila_rate_list, dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
-                                               wind_size=self.day_size, resnet_layers=self.tcn_resnet_layers, in_channel=self.day_in_channel, out_channel=self.day_out_channel,
+        self.Week_SEN_Net = SeqAndExcNet(self.wind_size, self.sqe_rate)
+        self.Day_SEN_Net = SeqAndExcNet(self.day_size, self.sqe_rate)
+        self.Week_Tempora_Net = TemporalConvNet(dila_rate_type='week', dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
+                                                wind_size=self.wind_size, resnet_layers=self.week_resnet_layers, in_channel=self.week_in_channel, out_channel=self.week_out_channel,
+                                                res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
+        self.Day_Tempora_Net = TemporalConvNet(dila_rate_type='day', dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
+                                               wind_size=self.day_size, resnet_layers=self.week_resnet_layers, in_channel=self.day_in_channel, out_channel=self.day_out_channel,
                                                res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
         self.Current_Net = CurrentNet(data_h=self.data_h, data_w=self.data_w, kernel_size=self.res_kernel_size,
                                       resnet_layers=self.current_resnet_layer)
+        self.fusion = FusionNet(self.data_h, self.data_w)
 
     def forward(self, inputs, ext):
-        self.batch_size = inputs.shape[0]
-        trend_data, day_data, current_data = self.split_data(inputs)
-        sened_trend_data = self.SEN_Net(trend_data)
-        sened_day_data = self.SEN_Net(day_data)
-        trend_tempora_net_res = self.Trend_Tempora_Net(sened_trend_data)
+        week_data, day_data, current_data = self.split_data(inputs)
+        sened_week_data = self.Week_SEN_Net(week_data)
+        sened_day_data = self.Day_SEN_Net(day_data)
+        week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
+        day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
         current_net_res = self.Current_Net(current_data)
-        return trend_tempora_net_res
+        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res)
+        return result
 
     def split_data(self, data):
         trend_data = data
-        day_data = data[:, :, self.wind_size - self.day_size:-1, :, :]
-        now_data = data[:, :, 335:-1, :, :]
-        return trend_data, day_data, now_data
+        day_data = data[:, :, self.wind_size - self.day_size - 1:-1, :, :]
+        current_data = data[:, :, 335:336, :, :]
+        return trend_data, day_data, current_data
 
-    def set_channel(self, trend_in_channel, trend_out_channel, day_in_channel, day_out_channel):
-        if trend_in_channel is None:
-            self.trend_in_channel = [2, 4, 8, 16, 32, 64, 32, 16, 8, 4]
+    def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
+        if week_in_channel is None:
+            self.week_in_channel = [2, 4, 8, 16, 32, 64, 32, 16, 8, 4]
         else:
-            self.trend_in_channel = trend_in_channel
-        if trend_out_channel is None:
-            self.trend_out_channel = [4, 8, 16, 32, 64, 32, 16, 8, 4, 2]
+            self.week_in_channel = week_in_channel
+        if week_out_channel is None:
+            self.week_out_channel = [4, 8, 16, 32, 64, 32, 16, 8, 4, 2]
         else:
-            self.trend_out_channel = trend_out_channel
+            self.week_out_channel = week_out_channel
         if day_in_channel is None:
-            self.day_in_channel = [2, 4, 8, 16, 32, 64, 32, 16, 8, 4]
+            self.day_in_channel = [2, 4, 8, 16, 16, 8, 4]
         else:
             self.day_in_channel = day_in_channel
         if day_out_channel is None:
-            self.day_out_channel = [4, 8, 16, 32, 64, 32, 16, 8, 4, 2]
+            self.day_out_channel = [4, 8, 16, 16, 8, 4, 2]
         else:
             self.day_out_channel = day_out_channel

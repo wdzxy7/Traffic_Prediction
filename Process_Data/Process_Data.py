@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 
 
-# 归一化库 copy from ASTCN
+# MinMaxNormalization copy from ASTCN
 class MinMaxNormalization(object):
     '''MinMax Normalization --> [-1, 1]
        x = (x - min) / (max - min).
@@ -17,7 +17,7 @@ class MinMaxNormalization(object):
     def fit(self, X):
         self._min = X.min()
         self._max = X.max()
-        print("min:", self._min, "max:", self._max)
+        print("min:", self._min, "max: ", self._max)
 
     def transform(self, X):
         X = 1. * (X - self._min) / (self._max - self._min)
@@ -62,8 +62,8 @@ def deal_bj():
     len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
     train_data = mmn_all_data[0: len_train]
     train_time = all_time[0: len_train]
-    test_data = mmn_all_data[len_train + 1: len_train + len_test]
-    test_time = all_time[len_train + 1: len_train + len_test]
+    test_data = mmn_all_data[len_train: len_train + len_test]
+    test_time = all_time[len_train: len_train + len_test]
     val_data = mmn_all_data[-len_val:]
     val_time = all_time[-len_val:]
     # save data
