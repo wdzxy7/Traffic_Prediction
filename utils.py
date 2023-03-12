@@ -6,7 +6,6 @@ import torch.utils.data as data
 
 
 class FlowDataset(data.Dataset):
-
     def __init__(self, data_name, window_size=7 * 48, data_type='train'):
         self.raw_data_path = './Data'
         self.data_path = './processed'
@@ -67,10 +66,10 @@ class FlowDataset(data.Dataset):
         if self.data_type == 'train':
             self.flow_data = np.load(os.path.join(data_path, 'train_data.npy'))
             self.time_data = np.load(os.path.join(data_path, 'train_time.npy'))
-        if self.data_type == 'test':
+        elif self.data_type == 'test':
             self.flow_data = np.load(os.path.join(data_path, 'test_data.npy'))
             self.time_data = np.load(os.path.join(data_path, 'test_time.npy'))
-        if self.data_type == 'val':
+        elif self.data_type == 'val':
             self.flow_data = np.load(os.path.join(data_path, 'val_data.npy'))
             self.time_data = np.load(os.path.join(data_path, 'val_time.npy'))
         else:
