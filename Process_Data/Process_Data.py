@@ -4,7 +4,6 @@ import h5py
 import numpy as np
 
 
-# MinMaxNormalization copy from ASTCN
 class MinMaxNormalization(object):
     '''MinMax Normalization --> [-1, 1]
        x = (x - min) / (max - min).
@@ -79,6 +78,66 @@ def deal_bj():
     print('data process over')
 
 
+def deal_bike_nyc():
+    print('bike nyc data process start')
+    bike_nyc_save_path = os.path.join(save_path, 'BikeNYC')
+    if not os.path.exists(bike_nyc_save_path):
+        os.makedirs(bike_nyc_save_path)
+    fpath = os.path.join(data_path, 'BikeNYC', 'NYC14_M16x8_T60_NewEnd.h5')
+    all_data, all_time = load_data(fpath)
+    print('all data shape', all_data.shape)
+    mmn = MinMaxNormalization()
+    mmn.fit(all_data)
+    mmn_all_data = [mmn.transform(d) for d in all_data]
+    len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
+    train_data = mmn_all_data[0: len_train]
+    train_time = all_time[0: len_train]
+    test_data = mmn_all_data[len_train: len_train + len_test]
+    test_time = all_time[len_train: len_train + len_test]
+    val_data = mmn_all_data[-len_val:]
+    val_time = all_time[-len_val:]
+    np.save(os.path.join(bike_nyc_save_path, 'raw_all_data'), all_data)
+    np.save(os.path.join(bike_nyc_save_path, 'all_data'), mmn_all_data)
+    np.save(os.path.join(bike_nyc_save_path, 'all_time'), all_time)
+    np.save(os.path.join(bike_nyc_save_path, 'train_data'), train_data)
+    np.save(os.path.join(bike_nyc_save_path, 'train_time'), train_time)
+    np.save(os.path.join(bike_nyc_save_path, 'test_data'), test_data)
+    np.save(os.path.join(bike_nyc_save_path, 'test_time'), test_time)
+    np.save(os.path.join(bike_nyc_save_path, 'val_data'), val_data)
+    np.save(os.path.join(bike_nyc_save_path, 'val_time'), val_time)
+    print('data process over')
+
+
+def deal_taxi_nyc():
+    print('taxi nyc data process start')
+    taxi_nyc_save_path = os.path.join(save_path, 'TaxiNYC')
+    if not os.path.exists(taxi_nyc_save_path):
+        os.makedirs(taxi_nyc_save_path)
+    fpath = os.path.join(data_path, 'TaxiNYC', 'NYC2014.h5')
+    all_data, all_time = load_data(fpath)
+    print('all data shape', all_data.shape)
+    mmn = MinMaxNormalization()
+    mmn.fit(all_data)
+    mmn_all_data = [mmn.transform(d) for d in all_data]
+    len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
+    train_data = mmn_all_data[0: len_train]
+    train_time = all_time[0: len_train]
+    test_data = mmn_all_data[len_train: len_train + len_test]
+    test_time = all_time[len_train: len_train + len_test]
+    val_data = mmn_all_data[-len_val:]
+    val_time = all_time[-len_val:]
+    np.save(os.path.join(taxi_nyc_save_path, 'raw_all_data'), all_data)
+    np.save(os.path.join(taxi_nyc_save_path, 'all_data'), mmn_all_data)
+    np.save(os.path.join(taxi_nyc_save_path, 'all_time'), all_time)
+    np.save(os.path.join(taxi_nyc_save_path, 'train_data'), train_data)
+    np.save(os.path.join(taxi_nyc_save_path, 'train_time'), train_time)
+    np.save(os.path.join(taxi_nyc_save_path, 'test_data'), test_data)
+    np.save(os.path.join(taxi_nyc_save_path, 'test_time'), test_time)
+    np.save(os.path.join(taxi_nyc_save_path, 'val_data'), val_data)
+    np.save(os.path.join(taxi_nyc_save_path, 'val_time'), val_time)
+    print('data process over')
+
+
 def split_data(len_alldata, test_percent, val_percent):
     len_train = math.ceil(len_alldata * (1 - val_percent - test_percent))
     len_val = int(len_alldata * val_percent)
@@ -122,4 +181,4 @@ if __name__ == '__main__':
     val_rate = 0.2
     data_path = '../Data'
     save_path = '../processed'
-    deal_bj()
+    deal_taxi_nyc()

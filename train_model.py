@@ -9,6 +9,11 @@ from utils import FlowDataset
 import torch.utils.data as data
 from test_module import TestModule
 
+'''
+Taxi_Bj max:1292 min:0 h:32 w:32
+Bike_NYC max:267 min 0 h:16 w:8
+Taxi_NYC max:1852 min:0 h:15 w:5
+'''
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=50, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=12, help='Batch size of dataloader')
