@@ -132,7 +132,6 @@ class TemporalConvNet(nn.Module):
         return padding_list
 
 
-# change this
 class CovBlockAttentionNet(nn.Module):
     def __init__(self, wind_size, r, sqe_kernel_size, data_h, data_w):
         super(CovBlockAttentionNet, self).__init__()
