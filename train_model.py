@@ -17,12 +17,13 @@ parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of opt
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=7, help='The kernel size of CovBlockAttentionNet')
 parser.add_argument('--week_resnet_layers', type=int, default=5, help='Number of layers of week and day data in ResNet')
-parser.add_argument('--current_resnet_layers', type=int, default=10, help='Number of layers of current data in ResNet')
+parser.add_argument('--current_resnet_layers', type=int, default=5, help='Number of layers of current data in ResNet')
 parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
+parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 
 
 def load_data():
@@ -55,7 +56,7 @@ def train(load_sign):
     data_h, data_w = get_h_w()
     model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, dila_rate_list=None,
                        tcn_kernel_size=tcn_kernel_size,  week_resnet_layers=week_resnet_layers, res_kernel_size=res_kernel_size,
-                       current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w)
+                       current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
     model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -206,6 +207,7 @@ if __name__ == '__main__':
     load = args.load
     check_point = args.check_point
     data_name = args.data_name
+    use_ext = args.use_ext
     logger = logging.getLogger(__name__)
     set_logger()
     train(load)

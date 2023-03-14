@@ -1,6 +1,7 @@
 import os
-import torch
+import h5py
 import time
+import torch
 import numpy as np
 import torch.utils.data as data
 
@@ -34,7 +35,8 @@ class FlowDataset(data.Dataset):
     def load_external(self, time_data):
         vec_time = self.timestamp2vec(time_data)
         holiday_data = self.load_holiday([str(int(x)) for x in time_data])
-        return np.hstack([vec_time, holiday_data])
+        meteorol_data = self.load_meteorol(time_data)
+        return np.hstack([vec_time, holiday_data, meteorol_data])
 
     # copy from astcn
     def timestamp2vec(self, timestamps):
@@ -59,6 +61,39 @@ class FlowDataset(data.Dataset):
             if slot[:8] in holidays:
                 H[i] = 1
         return H[:, None]
+
+    def load_meteorol(self, time_data):
+        fpath = os.path.join(self.raw_data_path, self.data_name, 'Meteorology.h5')
+        meteorol_file = h5py.File(fpath, 'r')
+        meteoroal = {}
+        for key in meteorol_file.keys():
+            meteoroal[key] = meteorol_file[key][()]
+        timeslot = meteorol_file['date']
+        windspeed = meteorol_file['WindSpeed']
+        weather = meteorol_file['Weather']
+        temperature = meteorol_file['Temperature']
+
+        M = dict()  # map timeslot to index
+        for i, slot in enumerate(timeslot):
+            M[slot] = i
+
+        WS = []  # WindSpeed
+        WR = []  # Weather
+        TE = []  # Temperature
+        for slot in time_data:
+            predicted_id = M[slot]
+            cur_id = predicted_id - 1
+            WS.append(windspeed[cur_id])
+            WR.append(weather[cur_id])
+            TE.append(temperature[cur_id])
+
+        WS = np.asarray(WS)
+        WR = np.asarray(WR)
+        TE = np.asarray(TE)
+        WS = 1. * (WS - WS.min()) / (WS.max() - WS.min())
+        TE = 1. * (TE - TE.min()) / (TE.max() - TE.min())
+        merge_data = np.hstack([WR, WS[:, None], TE[:, None]])
+        return merge_data
 
     def load_data(self):
         # load flow data

@@ -235,16 +235,78 @@ class FusionNet(nn.Module):
         return out
 
 
+class Attention(nn.Module):
+    def __init__(self):
+        super(Attention, self).__init__()
+        self.softmax = nn.Softmax(-1)
+
+    def forward(self, Q, K):
+        d_k = K.size(-1)
+        outputs = torch.matmul(Q, torch.transpose(K, -1, -2))
+        outputs = (outputs / d_k)
+        outputs = self.softmax(outputs)
+        return outputs
+
+
+class MultiAttention(nn.Module):
+    def __init__(self, data_h, data_w, heads):
+        super(MultiAttention, self).__init__()
+        self.heads = heads
+        self.data_h = data_h
+        self.data_w = data_w
+        self.input_size = data_h * data_w * 2 + 28
+        self.output_size = (data_h * data_w * 2 + 28) * heads
+        self.ext_seq = nn.Sequential(nn.Conv2d(336, 128, (1, 1), bias=False),
+                                     nn.BatchNorm2d(128),
+                                     nn.LeakyReLU(inplace=True),
+                                     nn.Conv2d(128, 64, (1, 1), bias=False),
+                                     nn.BatchNorm2d(64),
+                                     nn.LeakyReLU(inplace=True),
+                                     nn.Conv2d(64, 32, (1, 1), bias=False),
+                                     nn.BatchNorm2d(32),
+                                     nn.LeakyReLU(inplace=True),
+                                     nn.Conv2d(32, 16, (1, 1), bias=False),
+                                     nn.BatchNorm2d(16),
+                                     nn.LeakyReLU(inplace=True),
+                                     nn.Conv2d(16, 1, (1, 1), bias=False),
+                                     nn.BatchNorm2d(1),
+                                     nn.LeakyReLU(inplace=True),
+                                     )
+        self.linear1 = nn.Linear(self.input_size, self.output_size, bias=False)
+        self.linear2 = nn.Linear(self.input_size, self.output_size, bias=False)
+        self.linear3 = nn.Linear(self.input_size, self.output_size, bias=False)
+        self.attention = Attention()
+        self.linear_out = nn.Linear(self.output_size, 1, bias=False)
+
+    def forward(self, inputs, ext):
+        ext = ext.unsqueeze(-1).unsqueeze(-1).view(inputs.shape[0], 336, 28, 1)
+        ext = self.ext_seq(ext)
+        ext = ext.view(inputs.shape[0], 28)
+        inputs = inputs.view(inputs.shape[0], self.data_h * self.data_w * 2)
+        inputs_ = inputs
+        attention_data = torch.cat([inputs, ext], dim=1)
+        q = self.linear1(attention_data)
+        k = self.linear2(attention_data)
+        v = self.linear3(attention_data)
+        outputs = self.attention(q, k)
+        outputs = torch.matmul(outputs, v)
+        outputs = outputs[:, 0:2048]
+        outputs = outputs.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
+        return outputs
+
+
 class TestModule(nn.Module):
     def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, sqe_kernel_size=3, dila_rate_list=None, tcn_kernel_size=3, week_resnet_layers=5,
                  current_resnet_layer=10, week_in_channel=None, week_out_channel=None, res_kernel_size=3, data_h=32, data_w=32,
-                 day_in_channel=None, day_out_channel=None):
+                 day_in_channel=None, day_out_channel=None, use_ext=True):
         super(TestModule, self).__init__()
         # parameter
         # global
         self.batch_size = batch_size
         self.wind_size = wind_size
         self.day_size = 48
+        self.heads = 1
+        self.use_ext = use_ext
         # CovBlockAttentionNet
         self.sqe_rate = sqe_rate
         self.sqe_kernel_size = sqe_kernel_size
@@ -274,6 +336,7 @@ class TestModule(nn.Module):
         self.Current_Net = CurrentNet(data_h=self.data_h, data_w=self.data_w, kernel_size=self.res_kernel_size,
                                       resnet_layers=self.current_resnet_layer)
         self.fusion = FusionNet(self.data_h, self.data_w)
+        self.att = MultiAttention(self.data_h, self.data_w, self.heads)
 
     def forward(self, inputs, ext):
         week_data, day_data, current_data = self.split_data(inputs)
@@ -282,7 +345,11 @@ class TestModule(nn.Module):
         week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
         day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
         current_net_res = self.Current_Net(current_data)
-        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res)
+        fusion_res = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res)
+        if self.use_ext:
+            result = self.att(fusion_res, ext)
+        else:
+            result = fusion_res
         return result
 
     def split_data(self, data):
