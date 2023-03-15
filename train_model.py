@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import torch
 import logging
 import argparse
@@ -12,10 +13,10 @@ from test_module import TestModule
 
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=50, help='Epochs of train')
-parser.add_argument('--batch_size', type=int, default=12, help='Batch size of dataloader')
+parser.add_argument('--batch_size', type=int, default=1, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of optimizer')
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
-parser.add_argument('--sqe_kernel_size', type=int, default=7, help='The kernel size of CovBlockAttentionNet')
+parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
 parser.add_argument('--week_resnet_layers', type=int, default=5, help='Number of layers of week and day data in ResNet')
 parser.add_argument('--current_resnet_layers', type=int, default=5, help='Number of layers of current data in ResNet')
 parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
@@ -23,15 +24,15 @@ parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kern
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
-parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
+parser.add_argument('--use_ext', type=bool, default=False, help='Whether use external data')
 
 
 def load_data():
-    train_dataset = FlowDataset(data_name, data_type='train')
+    train_dataset = FlowDataset(data_name, data_type='train', use_ext=use_ext)
     train_loader = data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
-    val_dataset = FlowDataset(data_name, data_type='val')
+    val_dataset = FlowDataset(data_name, data_type='val', use_ext=use_ext)
     val_loader = data.DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
-    test_dataset = FlowDataset(data_name, data_type='test')
+    test_dataset = FlowDataset(data_name, data_type='test', use_ext=use_ext)
     test_loader = data.DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, val_loader, test_loader
 
@@ -194,7 +195,7 @@ def load_checkpoint(model, optimizer):
 if __name__ == '__main__':
     min_rmse = 999999
     args = parser.parse_args()
-    device = torch.device(1)
+    device = torch.device(0)
     sqe_rate = args.sqe_rate
     sqe_kernel_size = args.sqe_kernel_size
     batch_size = args.batch_size

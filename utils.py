@@ -7,7 +7,7 @@ import torch.utils.data as data
 
 
 class FlowDataset(data.Dataset):
-    def __init__(self, data_name, window_size=7 * 48, data_type='train'):
+    def __init__(self, data_name, window_size=7 * 48, data_type='train', use_ext=False):
         self.raw_data_path = './Data'
         self.data_path = './processed'
         self.data_name = data_name
@@ -17,6 +17,8 @@ class FlowDataset(data.Dataset):
         self.flow_data = None
         self.time_data = None
         self.data_len = 0
+        self.use_ext = use_ext
+        self.meteoroal = self.get_all_meteorol()
         self.load_data()
 
     def __getitem__(self, index):
@@ -33,6 +35,8 @@ class FlowDataset(data.Dataset):
         return self.data_len
 
     def load_external(self, time_data):
+        if self.use_ext is False:
+            return np.asarray([])
         vec_time = self.timestamp2vec(time_data)
         holiday_data = self.load_holiday([str(int(x)) for x in time_data])
         meteorol_data = self.load_meteorol(time_data)
@@ -63,15 +67,10 @@ class FlowDataset(data.Dataset):
         return H[:, None]
 
     def load_meteorol(self, time_data):
-        fpath = os.path.join(self.raw_data_path, self.data_name, 'Meteorology.h5')
-        meteorol_file = h5py.File(fpath, 'r')
-        meteoroal = {}
-        for key in meteorol_file.keys():
-            meteoroal[key] = meteorol_file[key][()]
-        timeslot = meteorol_file['date']
-        windspeed = meteorol_file['WindSpeed']
-        weather = meteorol_file['Weather']
-        temperature = meteorol_file['Temperature']
+        timeslot = self.meteoroal['date']
+        windspeed = self.meteoroal['WindSpeed']
+        weather = self.meteoroal['Weather']
+        temperature = self.meteoroal['Temperature']
 
         M = dict()  # map timeslot to index
         for i, slot in enumerate(timeslot):
@@ -94,6 +93,14 @@ class FlowDataset(data.Dataset):
         TE = 1. * (TE - TE.min()) / (TE.max() - TE.min())
         merge_data = np.hstack([WR, WS[:, None], TE[:, None]])
         return merge_data
+
+    def get_all_meteorol(self):
+        fpath = os.path.join(self.raw_data_path, self.data_name, 'Meteorology.h5')
+        meteorol_file = h5py.File(fpath, 'r')
+        meteoroal = {}
+        for key in meteorol_file.keys():
+            meteoroal[key] = meteorol_file[key][()]
+        return meteoroal
 
     def load_data(self):
         # load flow data

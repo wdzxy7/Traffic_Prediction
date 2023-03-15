@@ -29,6 +29,7 @@ class TemporalResCovBlock(nn.Module):
         self.bn = nn.BatchNorm3d(self.out_channel)
         self.relu = nn.LeakyReLU(inplace=True)
         self.resnet = nn.ModuleList()
+        self.build_resnet()
 
     def forward(self, inputs):
         output = self.dila_conv(inputs)
@@ -59,15 +60,20 @@ class ResUnit(nn.Module):
         self.res_kernel_size = res_kernel_size
         self.h_pad, self.w_pad = self.cal_padding()
         # in channel == out channel
-        self.conv = nn.Conv3d(in_channel, out_channel, kernel_size=(1, self.res_kernel_size, self.res_kernel_size),
-                              padding=(0, self.h_pad, self.w_pad), stride=(1, 1, 1))
-        self.bn = nn.BatchNorm3d(in_channel)
+        self.conv1 = nn.Conv3d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size, self.res_kernel_size),
+                              padding=(self.h_pad, self.h_pad, self.w_pad), stride=(1, 1, 1))
+        self.bn1 = nn.BatchNorm3d(in_channel)
+        self.conv2 = nn.Conv3d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size, self.res_kernel_size),
+                              padding=(self.h_pad, self.h_pad, self.w_pad), stride=(1, 1, 1))
+        self.bn2 = nn.BatchNorm3d(in_channel)
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, inputs):
-        output = self.conv(inputs)
-        output = self.bn(output)
+        output = self.conv1(inputs)
+        output = self.bn1(output)
         output = self.relu(output)
+        output = self.conv2(output)
+        output = self.bn2(output)
         return output + inputs
 
     def cal_padding(self):
@@ -103,6 +109,7 @@ class TemporalConvNet(nn.Module):
             self.TemporalRes_blocks.append(TemporalResCovBlock(dila_rate, padding, self.causal_cov_size, self.dila_stride,
                                                                c_in, c_out, self.resnet_layers, self.tcn_kernel_size,
                                                                self.res_kernel_size, self.data_h, self.data_w))
+        # self.CovBlockAttentionNet(self.wind_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
 
     def forward(self, inputs):
         # padding data seq from 336 to 337 before training
@@ -221,6 +228,7 @@ class FusionNet(nn.Module):
         self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=True)
+        self.tanh = nn.Tanh()
 
     def forward(self, week, day, current):
         # return self.fusion_2(week, day, current)
@@ -232,6 +240,7 @@ class FusionNet(nn.Module):
     def fusion_2(self, week, day, current):
         out = torch.add(self.w_w * week, self.w_d * day)
         out = torch.add(out, self.w_c * current)
+        # out = self.tanh(out)
         return out
 
 
@@ -277,13 +286,13 @@ class MultiAttention(nn.Module):
         self.linear3 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.attention = Attention()
         self.linear_out = nn.Linear(self.output_size, 1, bias=False)
+        self.tanh = nn.Tanh()
 
     def forward(self, inputs, ext):
         ext = ext.unsqueeze(-1).unsqueeze(-1).view(inputs.shape[0], 336, 28, 1)
         ext = self.ext_seq(ext)
         ext = ext.view(inputs.shape[0], 28)
         inputs = inputs.view(inputs.shape[0], self.data_h * self.data_w * 2)
-        inputs_ = inputs
         attention_data = torch.cat([inputs, ext], dim=1)
         q = self.linear1(attention_data)
         k = self.linear2(attention_data)
@@ -292,7 +301,7 @@ class MultiAttention(nn.Module):
         outputs = torch.matmul(outputs, v)
         outputs = outputs[:, 0:2048]
         outputs = outputs.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
-        return outputs
+        return self.tanh(outputs)
 
 
 class TestModule(nn.Module):
@@ -336,7 +345,7 @@ class TestModule(nn.Module):
         self.Current_Net = CurrentNet(data_h=self.data_h, data_w=self.data_w, kernel_size=self.res_kernel_size,
                                       resnet_layers=self.current_resnet_layer)
         self.fusion = FusionNet(self.data_h, self.data_w)
-        self.att = MultiAttention(self.data_h, self.data_w, self.heads)
+        # self.att = MultiAttention(self.data_h, self.data_w, self.heads)
 
     def forward(self, inputs, ext):
         week_data, day_data, current_data = self.split_data(inputs)

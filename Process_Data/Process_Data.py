@@ -177,8 +177,10 @@ def clean_data(flow_data, time_data, T=48):
 
 
 if __name__ == '__main__':
-    test_rate = 0.2
-    val_rate = 0.2
+    test_rate = 0.1
+    val_rate = 0.1
     data_path = '../Data'
     save_path = '../processed'
-    deal_taxi_nyc()
+    deal_bj()
+    # deal_taxi_nyc()
+    # deal_bike_nyc()
