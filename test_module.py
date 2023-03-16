@@ -292,7 +292,7 @@ class ExtEmb(nn.Module):
         super(ExtEmb, self).__init__()
         self.data_h = data_h
         self.data_w = data_w
-        self.emb = nn.Embedding(num_embeddings=336, embedding_dim=9)
+        self.emb = nn.Embedding(num_embeddings=336, embedding_dim=1)
         self.linear1 = nn.Linear(336 * 9, 168 * 9)
         self.relu = nn.LeakyReLU()
         self.linear2 = nn.Linear(168 * 9, 1024)
@@ -305,7 +305,8 @@ class ExtEmb(nn.Module):
         output = self.relu(output)
         output = self.linear2(output)
         output = self.relu(output)
-        output = output.view(shape[0], 1, self.data_h, self.data_w)
+        output = output.expand(2, self.data_h * self.data_w)
+        output = output.view(shape[0], 2, 1, self.data_h, self.data_w)
         return output
 
 
@@ -355,18 +356,6 @@ class TestModule(nn.Module):
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
-        self.convOut = nn.Sequential(
-            nn.ConvTranspose3d(2, 2, (1, 2, 2), stride=(1, 2, 2)),
-            nn.BatchNorm3d(2),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.BatchNorm3d(2),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.BatchNorm3d(2),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            )
 
     def forward(self, inputs, ext):
         # inputs = self.down_sample(inputs)

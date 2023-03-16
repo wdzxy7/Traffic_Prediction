@@ -26,7 +26,7 @@ class FlowDataset(data.Dataset):
         y = self.flow_data[end_index: end_index + 1]
         time_data = self.time_data[index: end_index]
         external_data = self.load_external(time_data)
-        external_data = torch.tensor(external_data).float()
+        external_data = torch.tensor(external_data).long()
         # move channel to first
         return x.permute(1, 0, 2, 3), y.permute(1, 0, 2, 3), external_data
 

@@ -23,8 +23,8 @@ parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kern
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
-parser.add_argument('--use_ext', type=bool, default=False, help='Whether use external data')
-device = torch.device(0)
+parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
+device = torch.device(3)
 
 
 def load_data():

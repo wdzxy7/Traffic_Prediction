@@ -15,7 +15,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=50, help='Epochs of train')
-parser.add_argument('--batch_size', type=int, default=16, help='Batch size of dataloader')
+parser.add_argument('--batch_size', type=int, default=8, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of optimizer')
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
@@ -26,7 +26,7 @@ parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kern
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
-parser.add_argument('--use_ext', type=bool, default=False, help='Whether use external data')
+parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 parser.add_argument('--device_ids', type=str, default='0')
 parser.add_argument('--local_rank', type=int, default=1)
 
@@ -108,7 +108,7 @@ def test_model(i, model, criterion, val_loader, test_loader):
         mess = '\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, val_RMSE, loss)
         if val_RMSE < min_rmse:
             min_rmse = val_RMSE
-            path = os.path.join(model_path, "model_{}_parameter.pkl".format(data_name))
+            path = os.path.join(model_path, "model_{}_parameter_change.pkl".format(data_name))
             torch.save(model.module.state_dict(), path)
         logger.info(str(mess))
         test_RMSE, loss = cal_rmse(model, criterion, test_loader)
@@ -166,7 +166,7 @@ def set_logger():
     if not os.path.exists(log_path):
         os.makedirs(log_path)
     logger.setLevel(level=logging.INFO)
-    handler = logging.FileHandler(os.path.join(log_path, "run_{}_log.log".format(data_name)))
+    handler = logging.FileHandler(os.path.join(log_path, "run_{}_log_change.log".format(data_name)))
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
@@ -185,7 +185,7 @@ def save_checkpoint(model, epoch, optimizer):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }
-    check_model_path = os.path.join(check_path, "model_{}_{:03d}.pt".format(data_name, epoch))
+    check_model_path = os.path.join(check_path, "model_{}_{:03d}_change.pt".format(data_name, epoch))
     torch.save(checkpoint, check_model_path)
 
 
