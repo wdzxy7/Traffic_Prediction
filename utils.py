@@ -18,7 +18,6 @@ class FlowDataset(data.Dataset):
         self.time_data = None
         self.data_len = 0
         self.use_ext = use_ext
-        self.meteoroal = self.get_all_meteorol()
         self.load_data()
 
     def __getitem__(self, index):
@@ -39,8 +38,7 @@ class FlowDataset(data.Dataset):
             return np.asarray([])
         vec_time = self.timestamp2vec(time_data)
         holiday_data = self.load_holiday([str(int(x)) for x in time_data])
-        meteorol_data = self.load_meteorol(time_data)
-        return np.hstack([vec_time, holiday_data, meteorol_data])
+        return np.hstack([vec_time, holiday_data])
 
     # copy from astcn
     def timestamp2vec(self, timestamps):
@@ -65,34 +63,6 @@ class FlowDataset(data.Dataset):
             if slot[:8] in holidays:
                 H[i] = 1
         return H[:, None]
-
-    def load_meteorol(self, time_data):
-        timeslot = self.meteoroal['date']
-        windspeed = self.meteoroal['WindSpeed']
-        weather = self.meteoroal['Weather']
-        temperature = self.meteoroal['Temperature']
-
-        M = dict()  # map timeslot to index
-        for i, slot in enumerate(timeslot):
-            M[slot] = i
-
-        WS = []  # WindSpeed
-        WR = []  # Weather
-        TE = []  # Temperature
-        for slot in time_data:
-            predicted_id = M[slot]
-            cur_id = predicted_id - 1
-            WS.append(windspeed[cur_id])
-            WR.append(weather[cur_id])
-            TE.append(temperature[cur_id])
-
-        WS = np.asarray(WS)
-        WR = np.asarray(WR)
-        TE = np.asarray(TE)
-        WS = 1. * (WS - WS.min()) / (WS.max() - WS.min())
-        TE = 1. * (TE - TE.min()) / (TE.max() - TE.min())
-        merge_data = np.hstack([WR, WS[:, None], TE[:, None]])
-        return merge_data
 
     def get_all_meteorol(self):
         fpath = os.path.join(self.raw_data_path, self.data_name, 'Meteorology.h5')

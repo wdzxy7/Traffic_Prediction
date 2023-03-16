@@ -69,11 +69,11 @@ class ResUnit(nn.Module):
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, inputs):
-        output = self.conv1(inputs)
-        output = self.bn1(output)
+        output = self.bn1(inputs)
+        output = self.conv1(output)
         output = self.relu(output)
-        output = self.conv2(output)
         output = self.bn2(output)
+        output = self.conv2(output)
         return output + inputs
 
     def cal_padding(self):
@@ -218,30 +218,30 @@ class CurrentNet(nn.Module):
 
 
 class FusionNet(nn.Module):
-    def __init__(self, data_h, data_w):
+    def __init__(self, data_h, data_w, use_ext):
         super(FusionNet, self).__init__()
         self.w_w = nn.Parameter(torch.randn(1))
         self.w_d = nn.Parameter(torch.randn(1))
         self.w_c = nn.Parameter(torch.randn(1))
         self.data_h = data_h
         self.data_w = data_w
-        self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        self.use_ext = use_ext
+        if use_ext:
+            self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        else:
+            self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=True)
         self.tanh = nn.Tanh()
 
-    def forward(self, week, day, current):
-        # return self.fusion_2(week, day, current)
-        inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+    def forward(self, week, day, current, ext):
+        if self.use_ext:
+            inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
+        else:
+            inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
         output = self.bn(inputs)
         output = self.cov(output)
-        return output
-
-    def fusion_2(self, week, day, current):
-        out = torch.add(self.w_w * week, self.w_d * day)
-        out = torch.add(out, self.w_c * current)
-        # out = self.tanh(out)
-        return out
+        return self.tanh(output)
 
 
 class Attention(nn.Module):
@@ -265,22 +265,6 @@ class MultiAttention(nn.Module):
         self.data_w = data_w
         self.input_size = data_h * data_w * 2 + 28
         self.output_size = (data_h * data_w * 2 + 28) * heads
-        self.ext_seq = nn.Sequential(nn.Conv2d(336, 128, (1, 1), bias=False),
-                                     nn.BatchNorm2d(128),
-                                     nn.LeakyReLU(inplace=True),
-                                     nn.Conv2d(128, 64, (1, 1), bias=False),
-                                     nn.BatchNorm2d(64),
-                                     nn.LeakyReLU(inplace=True),
-                                     nn.Conv2d(64, 32, (1, 1), bias=False),
-                                     nn.BatchNorm2d(32),
-                                     nn.LeakyReLU(inplace=True),
-                                     nn.Conv2d(32, 16, (1, 1), bias=False),
-                                     nn.BatchNorm2d(16),
-                                     nn.LeakyReLU(inplace=True),
-                                     nn.Conv2d(16, 1, (1, 1), bias=False),
-                                     nn.BatchNorm2d(1),
-                                     nn.LeakyReLU(inplace=True),
-                                     )
         self.linear1 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.linear2 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.linear3 = nn.Linear(self.input_size, self.output_size, bias=False)
@@ -290,7 +274,6 @@ class MultiAttention(nn.Module):
 
     def forward(self, inputs, ext):
         ext = ext.unsqueeze(-1).unsqueeze(-1).view(inputs.shape[0], 336, 28, 1)
-        ext = self.ext_seq(ext)
         ext = ext.view(inputs.shape[0], 28)
         inputs = inputs.view(inputs.shape[0], self.data_h * self.data_w * 2)
         attention_data = torch.cat([inputs, ext], dim=1)
@@ -302,6 +285,28 @@ class MultiAttention(nn.Module):
         outputs = outputs[:, 0:2048]
         outputs = outputs.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
         return self.tanh(outputs)
+
+
+class ExtEmb(nn.Module):
+    def __init__(self, data_h, data_w):
+        super(ExtEmb, self).__init__()
+        self.data_h = data_h
+        self.data_w = data_w
+        self.emb = nn.Embedding(num_embeddings=336, embedding_dim=9)
+        self.linear1 = nn.Linear(336 * 9, 168 * 9)
+        self.relu = nn.LeakyReLU()
+        self.linear2 = nn.Linear(168 * 9, 1024)
+
+    def forward(self, ext):
+        shape = ext.shape
+        embed_ext = self.emb(ext)
+        linear_ext = embed_ext.view(shape[0], -1)
+        output = self.linear1(linear_ext)
+        output = self.relu(output)
+        output = self.linear2(output)
+        output = self.relu(output)
+        output = output.view(shape[0], 1, self.data_h, self.data_w)
+        return output
 
 
 class TestModule(nn.Module):
@@ -334,6 +339,9 @@ class TestModule(nn.Module):
         # Resnet
         self.week_resnet_layers = week_resnet_layers
         self.current_resnet_layer = current_resnet_layer
+        self.down_sample = nn.Sequential(nn.Conv3d(2, 2, (1, 7, 7), (1, 2, 2), (0, 3, 3), bias=False),
+                                        nn.BatchNorm3d(2),
+                                        nn.LeakyReLU(inplace=True))
         self.Week_SEN_Net = CovBlockAttentionNet(self.wind_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.Day_SEN_Net = CovBlockAttentionNet(self.day_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.Week_Tempora_Net = TemporalConvNet(dila_rate_type='week', dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
@@ -344,21 +352,35 @@ class TestModule(nn.Module):
                                                res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
         self.Current_Net = CurrentNet(data_h=self.data_h, data_w=self.data_w, kernel_size=self.res_kernel_size,
                                       resnet_layers=self.current_resnet_layer)
-        self.fusion = FusionNet(self.data_h, self.data_w)
-        # self.att = MultiAttention(self.data_h, self.data_w, self.heads)
+        self.tanh = nn.Tanh()
+        self.emb = ExtEmb(self.data_h, self.data_w)
+        self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
+        self.convOut = nn.Sequential(
+            nn.ConvTranspose3d(2, 2, (1, 2, 2), stride=(1, 2, 2)),
+            nn.BatchNorm3d(2),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+            nn.BatchNorm3d(2),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+            nn.BatchNorm3d(2),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+            )
 
     def forward(self, inputs, ext):
+        # inputs = self.down_sample(inputs)
         week_data, day_data, current_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
         sened_day_data = self.Day_SEN_Net(day_data)
-        week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
-        day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
-        current_net_res = self.Current_Net(current_data)
-        fusion_res = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res)
+        week_tempora_net_res = self.tanh(self.Week_Tempora_Net(sened_week_data))
+        day_tempora_net_res = self.tanh(self.Day_Tempora_Net(sened_day_data))
+        current_net_res = self.tanh(self.Current_Net(current_data))
+
+        # fusion_res = self.convOut(fusion_res)
         if self.use_ext:
-            result = self.att(fusion_res, ext)
-        else:
-            result = fusion_res
+            ext = self.emb(ext)
+        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
         return result
 
     def split_data(self, data):
