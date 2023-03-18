@@ -12,7 +12,7 @@ from test_module import TestModule
 
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=50, help='Epochs of train')
-parser.add_argument('--batch_size', type=int, default=1, help='Batch size of dataloader')
+parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of optimizer')
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
@@ -103,7 +103,7 @@ def test_model(i, model, criterion, val_loader, test_loader):
         mess = '\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, val_RMSE, loss)
         if val_RMSE < min_rmse:
             min_rmse = val_RMSE
-            path = os.path.join(model_path, "model_{}_parameterlayer4.pkl".format(data_name))
+            path = os.path.join(model_path, "model_{}_parameter.pkl".format(data_name))
             torch.save(model.state_dict(), path)
         logger.info(str(mess))
         test_RMSE, loss = cal_rmse(model, criterion, test_loader)
@@ -163,7 +163,7 @@ def set_logger():
     if not os.path.exists(log_path):
         os.makedirs(log_path)
     logger.setLevel(level=logging.INFO)
-    handler = logging.FileHandler(os.path.join(log_path, "run_{}_loglayer4.log".format(data_name)))
+    handler = logging.FileHandler(os.path.join(log_path, "run_{}_log.log".format(data_name)))
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
@@ -182,7 +182,7 @@ def save_checkpoint(model, epoch, optimizer):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }
-    check_model_path = os.path.join(check_path, "model_{}_{:03d}layer4.pt".format(data_name, epoch))
+    check_model_path = os.path.join(check_path, "model_{}_{:03d}.pt".format(data_name, epoch))
     torch.save(checkpoint, check_model_path)
 
 
