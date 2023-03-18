@@ -2,6 +2,14 @@ import torch
 import numpy as np
 import torch.nn as nn
 
+'''
+change work
+done
+add drop out in external embedding
+add drop out in ResUnit
+remove tanh action after TCN
+'''
+
 
 class TemporalResCovBlock(nn.Module):
     def __init__(self, dila_rate, padding, causal_cov_size=3, dila_stride=1, in_channel=2, out_channel=2,
@@ -27,7 +35,7 @@ class TemporalResCovBlock(nn.Module):
                                    padding=(0, self.h_pad, self.w_pad), stride=(1, 1, 1), dilation=(dila_rate, 1, 1),
                                    bias=False)
         self.bn = nn.BatchNorm3d(self.out_channel)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=False)
         self.resnet = nn.ModuleList()
         self.build_resnet()
 
@@ -66,14 +74,18 @@ class ResUnit(nn.Module):
         self.conv2 = nn.Conv3d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size, self.res_kernel_size),
                               padding=(self.h_pad, self.h_pad, self.w_pad), stride=(1, 1, 1))
         self.bn2 = nn.BatchNorm3d(in_channel)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=False)
+        self.drop = nn.Dropout()
 
     def forward(self, inputs):
-        output = self.bn1(inputs)
+        output = self.relu(inputs)
+        output = self.bn1(output)
         output = self.conv1(output)
+        output = self.drop(output)
         output = self.relu(output)
         output = self.bn2(output)
         output = self.conv2(output)
+        output = self.drop(output)
         return output + inputs
 
     def cal_padding(self):
@@ -160,7 +172,7 @@ class CovBlockAttentionNet(nn.Module):
         self.h_pad, self.w_pad = self.cal_padding()
         self.cov = nn.Conv3d(2, 1, kernel_size=(2, self.sqe_kernel_size, self.sqe_kernel_size), stride=(1, 1, 1),
                              padding=(0, self.h_pad, self.w_pad))
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, inputs):
@@ -231,7 +243,7 @@ class FusionNet(nn.Module):
         else:
             self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=False)
         self.tanh = nn.Tanh()
 
     def forward(self, week, day, current, ext):
@@ -294,18 +306,21 @@ class ExtEmb(nn.Module):
         self.data_w = data_w
         self.emb = nn.Embedding(num_embeddings=336, embedding_dim=1)
         self.linear1 = nn.Linear(336 * 9, 168 * 9)
-        self.relu = nn.LeakyReLU()
+        self.relu = nn.LeakyReLU(inplace=False)
         self.linear2 = nn.Linear(168 * 9, 1024)
+        self.drop = nn.Dropout(p=0.5)
 
     def forward(self, ext):
         shape = ext.shape
         embed_ext = self.emb(ext)
         linear_ext = embed_ext.view(shape[0], -1)
         output = self.linear1(linear_ext)
+        output = self.drop(output)
         output = self.relu(output)
         output = self.linear2(output)
+        output = self.drop(output)
         output = self.relu(output)
-        output = output.expand(2, self.data_h * self.data_w)
+        output = output.repeat(1, 2)
         output = output.view(shape[0], 2, 1, self.data_h, self.data_w)
         return output
 
@@ -340,9 +355,6 @@ class TestModule(nn.Module):
         # Resnet
         self.week_resnet_layers = week_resnet_layers
         self.current_resnet_layer = current_resnet_layer
-        self.down_sample = nn.Sequential(nn.Conv3d(2, 2, (1, 7, 7), (1, 2, 2), (0, 3, 3), bias=False),
-                                        nn.BatchNorm3d(2),
-                                        nn.LeakyReLU(inplace=True))
         self.Week_SEN_Net = CovBlockAttentionNet(self.wind_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.Day_SEN_Net = CovBlockAttentionNet(self.day_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.Week_Tempora_Net = TemporalConvNet(dila_rate_type='week', dila_stride=self.dila_stride, tcn_kernel_size=self.tcn_kernel_size,
@@ -358,15 +370,12 @@ class TestModule(nn.Module):
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
 
     def forward(self, inputs, ext):
-        # inputs = self.down_sample(inputs)
         week_data, day_data, current_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
         sened_day_data = self.Day_SEN_Net(day_data)
-        week_tempora_net_res = self.tanh(self.Week_Tempora_Net(sened_week_data))
-        day_tempora_net_res = self.tanh(self.Day_Tempora_Net(sened_day_data))
-        current_net_res = self.tanh(self.Current_Net(current_data))
-
-        # fusion_res = self.convOut(fusion_res)
+        week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
+        day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
+        current_net_res = self.Current_Net(current_data)
         if self.use_ext:
             ext = self.emb(ext)
         result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)

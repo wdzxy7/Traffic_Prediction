@@ -65,7 +65,8 @@ def train(load_sign):
                        current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
     torch.cuda.set_device(device)
     model = model.to(device)
-    model = DistributedDataParallel(model, device_ids=[device_ids[args.local_rank]], output_device=device_ids[args.local_rank], find_unused_parameters=True)
+    model = DistributedDataParallel(model, device_ids=[device_ids[args.local_rank]], output_device=device_ids[args.local_rank],
+                                    find_unused_parameters=True, broadcast_buffers=False)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     stepLR = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
@@ -77,12 +78,17 @@ def train(load_sign):
     for i in range(epochs):
         sampler_train.set_epoch(i)
         for _, batch_data in enumerate(train_loader, 1):
-            x_data = batch_data[0].to(device)
+            model.train()
+            optimizer.zero_grad()
+            x_data = batch_data[0]
+            ext_data = batch_data[2]
+            x_data = x_data.clone().detach()
+            ext_data = ext_data.clone().detach()
+            x_data = x_data.to(device)
             y_data = batch_data[1].to(device)
-            ext_data = batch_data[2].to(device)
+            ext_data = ext_data.to(device)
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             if args.local_rank == 0:
@@ -119,7 +125,6 @@ def test_model(i, model, criterion, val_loader, test_loader):
 
 def cal_rmse(model, criterion, data_loader):
     total_loss = []
-    model.eval()
     count_all_pred_val = 0
     with torch.no_grad():
         for _, batch_data in enumerate(data_loader):

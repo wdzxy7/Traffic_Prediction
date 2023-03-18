@@ -24,7 +24,7 @@ parser.add_argument('--load', type=bool, default=False, help='Whether load check
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-device = torch.device(3)
+device = torch.device(2)
 
 
 def load_data():
@@ -69,12 +69,17 @@ def train(load_sign):
     test_count = 1
     for i in range(epochs):
         for _, batch_data in enumerate(train_loader, 1):
-            x_data = batch_data[0].to(device)
+            optimizer.zero_grad()
+            x_data = batch_data[0]
+            ext_data = batch_data[2]
+            x_data = x_data.clone().detach()
+            ext_data = ext_data.clone().detach()
+            x_data = x_data.to(device)
             y_data = batch_data[1].to(device)
-            ext_data = batch_data[2].to(device)
+            ext_data = ext_data.to(device)
+
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
