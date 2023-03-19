@@ -17,14 +17,14 @@ parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of opt
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
 parser.add_argument('--week_resnet_layers', type=int, default=2, help='Number of layers of week and day data in ResNet')
-parser.add_argument('--current_resnet_layers', type=int, default=2, help='Number of layers of current data in ResNet')
+parser.add_argument('--current_resnet_layers', type=int, default=1, help='Number of layers of current data in ResNet')
 parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-device = torch.device(2)
+device = torch.device(3)
 
 
 def load_data():
@@ -77,7 +77,6 @@ def train(load_sign):
             x_data = x_data.to(device)
             y_data = batch_data[1].to(device)
             ext_data = ext_data.to(device)
-
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
             loss.backward()
@@ -103,7 +102,7 @@ def test_model(i, model, criterion, val_loader, test_loader):
         mess = '\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, val_RMSE, loss)
         if val_RMSE < min_rmse:
             min_rmse = val_RMSE
-            path = os.path.join(model_path, "model_{}_parameter.pkl".format(data_name))
+            path = os.path.join(model_path, sav_dict['root'][1].format(data_name))
             torch.save(model.state_dict(), path)
         logger.info(str(mess))
         test_RMSE, loss = cal_rmse(model, criterion, test_loader)
@@ -163,7 +162,7 @@ def set_logger():
     if not os.path.exists(log_path):
         os.makedirs(log_path)
     logger.setLevel(level=logging.INFO)
-    handler = logging.FileHandler(os.path.join(log_path, "run_{}_log.log".format(data_name)))
+    handler = logging.FileHandler(os.path.join(log_path, sav_dict['root'][0].format(data_name)))
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
@@ -182,14 +181,14 @@ def save_checkpoint(model, epoch, optimizer):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }
-    check_model_path = os.path.join(check_path, "model_{}_{:03d}.pt".format(data_name, epoch))
+    check_model_path = os.path.join(check_path, sav_dict['root'][2].format(data_name, epoch))
     torch.save(checkpoint, check_model_path)
 
 
 def load_checkpoint(model, optimizer):
     global epochs
     check_path = './model/'
-    check_model_path = os.path.join(check_path, 'model_{:03d}.pt'.format(check_point))
+    check_model_path = os.path.join(check_path, sav_dict['root'][3].format(check_point))
     train_state = torch.load(check_model_path)
     model.load_state_dict(train_state['model_state_dict'])
     optimizer.load_state_dict(train_state['optimizer_state_dict'])
@@ -198,6 +197,7 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
+    sav_dict = {'root': ['run_{}_log.log', 'model_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt']}
     min_rmse = 999999
     args = parser.parse_args()
     sqe_rate = args.sqe_rate

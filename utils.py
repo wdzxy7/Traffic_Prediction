@@ -18,13 +18,14 @@ class FlowDataset(data.Dataset):
         self.time_data = None
         self.data_len = 0
         self.use_ext = use_ext
+        self.meteorol_data = self.get_all_meteorol()
         self.load_data()
 
     def __getitem__(self, index):
         end_index = index + self.wind_size
         x = self.flow_data[index: end_index]
         y = self.flow_data[end_index: end_index + 1]
-        time_data = self.time_data[index: end_index]
+        time_data = self.time_data[end_index - 4: end_index]
         external_data = self.load_external(time_data)
         external_data = torch.tensor(external_data).long()
         # move channel to first
@@ -38,7 +39,8 @@ class FlowDataset(data.Dataset):
             return np.asarray([])
         vec_time = self.timestamp2vec(time_data)
         holiday_data = self.load_holiday([str(int(x)) for x in time_data])
-        return np.hstack([vec_time, holiday_data])
+        meteorol = self.load_meteorol(time_data)
+        return np.hstack([vec_time, holiday_data, meteorol])
 
     # copy from astcn
     def timestamp2vec(self, timestamps):
@@ -71,6 +73,40 @@ class FlowDataset(data.Dataset):
         for key in meteorol_file.keys():
             meteoroal[key] = meteorol_file[key][()]
         return meteoroal
+
+    def load_meteorol(self, timeslots):
+        '''
+        timeslots: the predicted timeslots
+        In real-world, we dont have the meteorol data in the predicted timeslot, instead, we use the meteoral at previous timeslots, i.e., slot = predicted_slot - timeslot (you can use predicted meteorol data as well)
+        '''
+        f = self.meteorol_data
+        Timeslot = f['date']
+        WindSpeed = f['WindSpeed']
+        Weather = f['Weather']
+        Temperature = f['Temperature']
+
+        M = dict()  # map timeslot to index
+        for i, slot in enumerate(Timeslot):
+            M[slot] = i
+
+        WS = []  # WindSpeed
+        WR = []  # Weather
+        TE = []  # Temperature
+        for slot in timeslots:
+            predicted_id = M[slot]
+            cur_id = predicted_id - 1
+            WS.append(WindSpeed[cur_id])
+            WR.append(Weather[cur_id])
+            TE.append(Temperature[cur_id])
+
+        WS = np.asarray(WS)
+        WR = np.asarray(WR)
+        TE = np.asarray(TE)
+        # 0-1 scale
+        WS = 1. * (WS - WS.min()) / (WS.max() - WS.min())
+        TE = 1. * (TE - TE.min()) / (TE.max() - TE.min())
+        merge_data = np.hstack([WR, WS[:, None], TE[:, None]])
+        return merge_data
 
     def load_data(self):
         # load flow data

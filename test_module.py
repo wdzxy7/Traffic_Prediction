@@ -221,39 +221,20 @@ class CurrentNet(nn.Module):
     def __init__(self, data_h, data_w, kernel_size, resnet_layers):
         super(CurrentNet, self).__init__()
         self.resnet_layers = resnet_layers
-        self.resUnit = ResUnit(2, 2, data_h, data_w, kernel_size)
+        self.cov1 = nn.Conv3d(2, 64, kernel_size=(1, 3, 3),
+                              padding=(0, 1, 1), stride=(1, 1, 1))
+        self.res = ResUnit(64, 64, data_h, data_w, kernel_size)
+        self.cov2 = nn.Conv3d(64, 2, kernel_size=(1, 3, 3),
+                              padding=(0, 1, 1), stride=(1, 1, 1))
+        self.relu = nn.LeakyReLU(inplace=True)
+        self.bn = nn.BatchNorm3d(64)
 
     def forward(self, inputs):
-        for i in range(self.resnet_layers):
-            output = self.resUnit(inputs)
+        output = self.cov1(inputs)
+        output = self.relu(output)
+        output = self.bn(output)
+        output = self.cov2(output)
         return output
-
-
-class FusionNet(nn.Module):
-    def __init__(self, data_h, data_w, use_ext):
-        super(FusionNet, self).__init__()
-        self.w_w = nn.Parameter(torch.randn(1))
-        self.w_d = nn.Parameter(torch.randn(1))
-        self.w_c = nn.Parameter(torch.randn(1))
-        self.data_h = data_h
-        self.data_w = data_w
-        self.use_ext = use_ext
-        if use_ext:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
-        else:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
-        self.bn = nn.BatchNorm3d(2)
-        self.relu = nn.LeakyReLU(inplace=False)
-        self.tanh = nn.Tanh()
-
-    def forward(self, week, day, current, ext):
-        if self.use_ext:
-            inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
-        else:
-            inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
-        output = self.bn(inputs)
-        output = self.cov(output)
-        return self.tanh(output)
 
 
 class Attention(nn.Module):
@@ -304,10 +285,11 @@ class ExtEmb(nn.Module):
         super(ExtEmb, self).__init__()
         self.data_h = data_h
         self.data_w = data_w
-        self.emb = nn.Embedding(num_embeddings=336, embedding_dim=1)
-        self.linear1 = nn.Linear(336 * 9, 168 * 9)
+        self.emb = nn.Embedding(num_embeddings=4, embedding_dim=1)
+        self.linear1 = nn.Linear(4 * 28, 28)
         self.relu = nn.LeakyReLU(inplace=False)
-        self.linear2 = nn.Linear(168 * 9, 1024)
+        self.linear2 = nn.Linear(28, 10)
+        self.linear3 = nn.Linear(10, 2 * self.data_h * self.data_w)
         self.drop = nn.Dropout(p=0.5)
 
     def forward(self, ext):
@@ -318,11 +300,37 @@ class ExtEmb(nn.Module):
         output = self.drop(output)
         output = self.relu(output)
         output = self.linear2(output)
-        output = self.drop(output)
         output = self.relu(output)
-        output = output.repeat(1, 2)
+        output = self.linear3(output)
         output = output.view(shape[0], 2, 1, self.data_h, self.data_w)
         return output
+
+
+class FusionNet(nn.Module):
+    def __init__(self, data_h, data_w, use_ext):
+        super(FusionNet, self).__init__()
+        self.w_w = nn.Parameter(torch.randn(1))
+        self.w_d = nn.Parameter(torch.randn(1))
+        self.w_c = nn.Parameter(torch.randn(1))
+        self.data_h = data_h
+        self.data_w = data_w
+        self.use_ext = use_ext
+        if use_ext:
+            self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        else:
+            self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        self.bn = nn.BatchNorm3d(2)
+        self.relu = nn.LeakyReLU(inplace=False)
+        self.tanh = nn.Tanh()
+
+    def forward(self, week, day, current, ext):
+        if self.use_ext:
+            inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
+        else:
+            inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+        output = self.bn(inputs)
+        output = self.cov(output)
+        return self.tanh(output)
 
 
 class TestModule(nn.Module):
@@ -389,18 +397,18 @@ class TestModule(nn.Module):
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:
-            self.week_in_channel = [2, 4, 8, 16, 16, 16, 16, 16]
+            self.week_in_channel = [2, 32, 32, 32, 32, 32, 32, 32]
         else:
             self.week_in_channel = week_in_channel
         if week_out_channel is None:
-            self.week_out_channel = [4, 8, 16, 16, 16, 16, 16, 2]
+            self.week_out_channel = [32, 32, 32, 32, 32, 32, 32, 2]
         else:
             self.week_out_channel = week_out_channel
         if day_in_channel is None:
-            self.day_in_channel = [2, 4, 8, 16, 16]
+            self.day_in_channel = [2, 32, 32, 32, 32]
         else:
             self.day_in_channel = day_in_channel
         if day_out_channel is None:
-            self.day_out_channel = [4, 8, 16, 16, 2]
+            self.day_out_channel = [32, 32, 32, 32, 2]
         else:
             self.day_out_channel = day_out_channel
