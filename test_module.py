@@ -4,10 +4,10 @@ import torch.nn as nn
 
 '''
 change work
-change TCN layer from 10 layers to 8 layers
-                      7 layers to 5 layers
-each layer`s timestamp is half of the upper level
-change TCN`s causal_cov_size from static to dynamic
+root: change channel into all 32 
+test: change channel all 32 into growth
+test2: change day in channel from all 32 into growth
+test is the best RMSE is 17.77630
 '''
 
 
@@ -397,11 +397,11 @@ class TestModule(nn.Module):
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:
-            self.week_in_channel = [2, 32, 32, 32, 32, 32, 32, 32]
+            self.week_in_channel = [2, 4, 8, 16, 32, 64, 128, 128]
         else:
             self.week_in_channel = week_in_channel
         if week_out_channel is None:
-            self.week_out_channel = [32, 32, 32, 32, 32, 32, 32, 2]
+            self.week_out_channel = [4, 8, 16, 32, 64, 128, 128, 2]
         else:
             self.week_out_channel = week_out_channel
         if day_in_channel is None:
