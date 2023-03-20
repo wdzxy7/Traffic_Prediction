@@ -24,7 +24,6 @@ parser.add_argument('--load', type=bool, default=False, help='Whether load check
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-device = torch.device(6)
 
 
 def load_data():
@@ -201,7 +200,10 @@ if __name__ == '__main__':
                 'test': ['run_{}_log_test.log', 'model_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt'],
                 'test2': ['run_{}_log_test2.log', 'model_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt', 'model_{:03d}_test2.pt']}
     key = 'test2'
+    print('with resnet use new fusion')
+    device = torch.device(5)
     min_rmse = 999999
+    # torch.manual_seed(2469)
     args = parser.parse_args()
     sqe_rate = args.sqe_rate
     sqe_kernel_size = args.sqe_kernel_size
