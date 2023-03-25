@@ -4,9 +4,10 @@ import torch.nn as nn
 
 '''
 change work
-test: use resnet
-root: use resnet and add leak
-test2: use resnet and use new fusion fuction
+root: change channel into all 32 
+test: change channel all 32 into growth
+test2: change day in channel from all 32 into growth
+test is the best RMSE is 17.77630
 '''
 
 
@@ -222,7 +223,7 @@ class CurrentNet(nn.Module):
         self.resnet_layers = resnet_layers
         self.cov1 = nn.Conv3d(2, 64, kernel_size=(1, 3, 3),
                               padding=(0, 1, 1), stride=(1, 1, 1))
-        self.resnet = ResUnit(64, 64, data_h, data_w, kernel_size)
+        self.res = ResUnit(64, 64, data_h, data_w, kernel_size)
         self.cov2 = nn.Conv3d(64, 2, kernel_size=(1, 3, 3),
                               padding=(0, 1, 1), stride=(1, 1, 1))
         self.relu = nn.LeakyReLU(inplace=True)
@@ -232,34 +233,7 @@ class CurrentNet(nn.Module):
         output = self.cov1(inputs)
         output = self.relu(output)
         output = self.bn(output)
-        output = self.resnet(output)
         output = self.cov2(output)
-        return output
-
-
-class TrickNet(nn.Module):
-    def __init__(self, up_c, kernel_size):
-        super(TrickNet, self).__init__()
-        self.up_channel = nn.Conv2d(14, up_c, padding=(1, 1), kernel_size=(kernel_size, kernel_size), stride=(1, 1))
-        self.relu = nn.LeakyReLU(inplace=True)
-        self.bn = nn.BatchNorm2d(up_c)
-        self.resnet = nn.Sequential(
-            nn.Conv2d(up_c, up_c, padding=(1, 1), kernel_size=(kernel_size, kernel_size), stride=(1, 1)),
-            nn.LeakyReLU(inplace=True),
-            nn.BatchNorm2d(up_c),
-            nn.Conv2d(up_c, up_c, padding=(1, 1), kernel_size=(kernel_size, kernel_size), stride=(1, 1)),
-            nn.LeakyReLU(inplace=True),
-            nn.BatchNorm2d(up_c)
-        )
-        self.down_channel = nn.Conv2d(up_c, 2, padding=(1, 1), kernel_size=(kernel_size, kernel_size), stride=(1, 1))
-
-    def forward(self, inputs):
-        inputs = self.up_channel(inputs)
-        output = self.relu(inputs)
-        output = self.bn(output)
-        output = self.resnet(output)
-        output = output + inputs
-        output = self.down_channel(output)
         return output
 
 
@@ -335,41 +309,29 @@ class ExtEmb(nn.Module):
 class FusionNet(nn.Module):
     def __init__(self, data_h, data_w, use_ext):
         super(FusionNet, self).__init__()
+        self.w_w = nn.Parameter(torch.randn(1))
+        self.w_d = nn.Parameter(torch.randn(1))
+        self.w_c = nn.Parameter(torch.randn(1))
         self.data_h = data_h
         self.data_w = data_w
         self.use_ext = use_ext
         if use_ext:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+            self.cov = nn.Conv3d(2, 2, kernel_size=(1, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         else:
             self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=False)
         self.tanh = nn.Tanh()
-        self.w_c = nn.Parameter(torch.rand((2, 1, self.data_h, self.data_w)), requires_grad=True)
-        self.w_p = nn.Parameter(torch.rand((2, 1, self.data_h, self.data_w)), requires_grad=True)
-        self.w_t = nn.Parameter(torch.rand((2, 1, self.data_h, self.data_w)), requires_grad=True)
-        self.w_e = nn.Parameter(torch.rand((2, 1, self.data_h, self.data_w)), requires_grad=True)
 
-    def forward(self, week, day, current, leak, ext):
-        return self.fusion2(week, day, current, leak, ext)
-        leak = leak.view(week.shape[0], 2, 1, self.data_h, self.data_w)
+    def forward(self, week, day, current, ext):
         if self.use_ext:
             inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
         else:
             inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+        inputs = week
         output = self.bn(inputs)
         output = self.cov(output)
-        output = output + leak
         return self.tanh(output)
-
-    def fusion2(self, week, day, current, leak, ext):
-        leak = leak.view(week.shape[0], 2, 1, self.data_h, self.data_w)
-        res = self.w_c * week + \
-              self.w_p * day + \
-              self.w_t * current + \
-              self.w_e * ext
-        res += leak
-        return torch.tanh(res)
 
 
 class TestModule(nn.Module):
@@ -412,34 +374,29 @@ class TestModule(nn.Module):
                                                res_kernel_size=self.res_kernel_size, data_h=self.data_h, data_w=self.data_w)
         self.Current_Net = CurrentNet(data_h=self.data_h, data_w=self.data_w, kernel_size=self.res_kernel_size,
                                       resnet_layers=self.current_resnet_layer)
-        self.Trick_Net = TrickNet(up_c=64, kernel_size=3)
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
 
     def forward(self, inputs, ext):
-        week_data, day_data, current_data, leak_data = self.split_data(inputs)
+        week_data, day_data, current_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
         sened_day_data = self.Day_SEN_Net(day_data)
         week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
         day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
         current_net_res = self.Current_Net(current_data)
-        leak_res = self.Trick_Net(leak_data)
+        # day_tempora_net_res = []
+        # current_net_res = []
         if self.use_ext:
             ext = self.emb(ext)
-        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, leak_res, ext)
+        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
         return result
 
     def split_data(self, data):
-        T = 48
         trend_data = data
         day_data = data[:, :, self.wind_size - self.day_size - 1:-1, :, :]
         current_data = data[:, :, 335:336, :, :]
-        temp = []
-        for i in range(1, 8):
-            temp.append(data[:, :, 336 - T * i:337 - T * i, :, :])
-        leak_data = torch.stack(temp, dim=2).view(data.shape[0], 14, self.data_h, self.data_w)
-        return trend_data, day_data, current_data, leak_data
+        return trend_data, day_data, current_data
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:

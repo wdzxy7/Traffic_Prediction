@@ -7,16 +7,24 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-from test_module import TestModule
+from t_best import TestModule
+# from test_module import TestModule
 
+
+'''
+use temp code rmse 17.26
+seed 6540
+lr 7e-4
+'''
 
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=50, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
-parser.add_argument('--lr', type=float, default=6e-4, help='Learning rate of optimizer')
+parser.add_argument('--lr', type=float, default=7e-4, help='Learning rate of optimizer')
+parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
 parser.add_argument('--sqe_rate', type=int, default=4, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
-parser.add_argument('--week_resnet_layers', type=int, default=2, help='Number of layers of week and day data in ResNet')
+parser.add_argument('--week_resnet_layers', type=int, default=2, help='Number of layers of week and day data in ResNet') # 2
 parser.add_argument('--current_resnet_layers', type=int, default=1, help='Number of layers of current data in ResNet')
 parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
@@ -58,8 +66,10 @@ def train(load_sign):
                        tcn_kernel_size=tcn_kernel_size,  week_resnet_layers=week_resnet_layers, res_kernel_size=res_kernel_size,
                        current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
     model.to(device)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # criterion = nn.MSELoss()
+    # criterion = nn.L1Loss()
+    criterion = nn.SmoothL1Loss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     stepLR = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
     show_parameter(model)
     if load_sign:
@@ -68,6 +78,7 @@ def train(load_sign):
     test_count = 1
     for i in range(epochs):
         for _, batch_data in enumerate(train_loader, 1):
+            # model.train()
             optimizer.zero_grad()
             x_data = batch_data[0]
             ext_data = batch_data[2]
@@ -77,7 +88,8 @@ def train(load_sign):
             y_data = batch_data[1].to(device)
             ext_data = ext_data.to(device)
             y_hat = model(x_data, ext_data)
-            loss = criterion(y_hat, y_data)
+            # loss = criterion(y_hat, y_data)
+            loss = logcosh(y_data, y_hat)
             loss.backward()
             optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
@@ -95,23 +107,28 @@ def test_model(i, model, criterion, val_loader, test_loader):
         os.makedirs(model_path)
     with torch.no_grad():
         model.eval()
-        val_RMSE, loss = cal_rmse(model, criterion, val_loader)
+        val_RMSE, val_MAE, loss = cal_rmse(model, criterion, val_loader)
         print('\n')
-        print('\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, val_RMSE, loss))
-        mess = '\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, val_RMSE, loss)
+        print('\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, val_RMSE, val_MAE, loss))
+        mess = '\tVALIDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, val_RMSE, val_MAE, loss)
         if val_RMSE < min_rmse:
             min_rmse = val_RMSE
             path = os.path.join(model_path, sav_dict[key][1].format(data_name))
             torch.save(model.state_dict(), path)
+        if val_MAE < min_mae:
+            min_rmse = val_RMSE
+            path = os.path.join(model_path, sav_dict[key][4].format(data_name))
+            torch.save(model.state_dict(), path)
         logger.info(str(mess))
-        test_RMSE, loss = cal_rmse(model, criterion, test_loader)
-        print('\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, test_RMSE, loss))
-        mess = '\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t loss:{}'.format(i, test_RMSE, loss)
+        test_RMSE, test_MAE, loss = cal_rmse(model, criterion, test_loader)
+        print('\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, test_RMSE, test_MAE, loss))
+        mess = '\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, test_RMSE, test_MAE, loss)
         logger.info(str(mess))
 
 
 def cal_rmse(model, criterion, data_loader):
-    total_loss = []
+    rmse_total_loss = []
+    mae_total_loss = []
     model.eval()
     count_all_pred_val = 0
     with torch.no_grad():
@@ -123,11 +140,14 @@ def cal_rmse(model, criterion, data_loader):
             criterion_loss = criterion(y_hat, y_data)
             y_real = inverse_mmn(y_data).float()
             y_hat_real = inverse_mmn(y_hat).float()
-            loss = (y_hat_real - y_real) ** 2
-            total_loss.append(loss.sum().item())
+            rmse_loss = (y_hat_real - y_real) ** 2
+            mae_loss = abs(y_hat_real - y_real)
+            rmse_total_loss.append(rmse_loss.sum().item())
+            mae_total_loss.append(mae_loss.sum().item())
             count_all_pred_val += y_hat_real.shape.numel()
-    RMSE = np.sqrt(np.array(total_loss).sum() / count_all_pred_val)
-    return RMSE, criterion_loss.item()
+    RMSE = np.sqrt(np.array(rmse_total_loss).sum() / count_all_pred_val)
+    MAE = np.array(mae_total_loss).sum() / count_all_pred_val
+    return RMSE, MAE, criterion_loss.item()
 
 
 def inverse_mmn(img):
@@ -148,8 +168,6 @@ def inverse_mmn(img):
 
 
 def show_parameter(model):
-    for k, v in model.state_dict().items():
-        print(k, v.shape)
     par = list(model.parameters())
     s = sum([np.prod(list(d.size())) for d in par])
     print("Parameter of 3DRTCN:", s)
@@ -195,15 +213,27 @@ def load_checkpoint(model, optimizer):
     return model, optimizer
 
 
+def huber(true, pred, delta):
+    loss = np.where(np.abs(true-pred) < delta,0.5*((true-pred)**2),delta*np.abs(true - pred) - 0.5*(delta**2))
+    print(loss)
+    return np.mean(loss)
+
+
+def logcosh(true, pred):
+    loss = torch.log(torch.cosh(pred - true))
+    return torch.mean(loss)
+
+
 if __name__ == '__main__':
-    sav_dict = {'root': ['run_{}_log.log', 'model_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt'],
-                'test': ['run_{}_log_test.log', 'model_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt'],
-                'test2': ['run_{}_log_test2.log', 'model_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt', 'model_{:03d}_test2.pt']}
+    sav_dict = {'root': ['run_{}_log.log', 'model_rmse_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt', 'model_mea_{}_parameter.pkl'],
+                'test': ['run_{}_log_test.log', 'model_rmse_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt', 'model_mea_{}_parameter.pkl'],
+                'test2': ['run_{}_log_test2.log', 'model_rmse_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt', 'model_{:03d}_test2.pt', 'model_mea_{}_parameter.pkl']}
     key = 'test2'
-    print('with resnet use new fusion')
     device = torch.device(5)
-    min_rmse = 999999
-    # torch.manual_seed(2469)
+    min_rmse = 17.2684
+    min_mae = 999
+    print('use logcosh Loss ')
+    torch.manual_seed(6540)
     args = parser.parse_args()
     sqe_rate = args.sqe_rate
     sqe_kernel_size = args.sqe_kernel_size
@@ -213,6 +243,7 @@ if __name__ == '__main__':
     tcn_kernel_size = args.tcn_kernel_size
     res_kernel_size = args.res_kernel_size
     lr = args.lr
+    weight_decay = args.weight_decay
     epochs = args.epochs
     load = args.load
     check_point = args.check_point
