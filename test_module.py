@@ -251,33 +251,47 @@ class Attention(nn.Module):
 
 
 class MultiAttention(nn.Module):
-    def __init__(self, data_h, data_w, heads):
+    def __init__(self, heads, input_size, up_channel):
         super(MultiAttention, self).__init__()
         self.heads = heads
-        self.data_h = data_h
-        self.data_w = data_w
-        self.input_size = data_h * data_w * 2 + 28
-        self.output_size = (data_h * data_w * 2 + 28) * heads
+        self.up_channel = up_channel
+        self.input_size = up_channel
+        self.output_size = up_channel * heads
         self.linear1 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.linear2 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.linear3 = nn.Linear(self.input_size, self.output_size, bias=False)
         self.attention = Attention()
         self.linear_out = nn.Linear(self.output_size, 1, bias=False)
         self.tanh = nn.Tanh()
+        self.down_channel = nn.AdaptiveAvgPool3d((input_size, 1, 1))
+        self.merge_channel = nn.Sequential(nn.Conv3d(2, self.up_channel, 1, bias=False),
+                                           nn.BatchNorm3d(self.up_channel),
+                                           nn.LeakyReLU(inplace=True),
+                                           nn.Conv3d(self.up_channel, self.up_channel, 1, bias=False),
+                                           nn.LayerNorm([self.up_channel, input_size, 1, 1], eps=1e-6))
+        self.linear_out = nn.Linear(self.output_size, 1, bias=False)
 
-    def forward(self, inputs, ext):
-        ext = ext.unsqueeze(-1).unsqueeze(-1).view(inputs.shape[0], 336, 28, 1)
-        ext = ext.view(inputs.shape[0], 28)
-        inputs = inputs.view(inputs.shape[0], self.data_h * self.data_w * 2)
-        attention_data = torch.cat([inputs, ext], dim=1)
-        q = self.linear1(attention_data)
-        k = self.linear2(attention_data)
-        v = self.linear3(attention_data)
-        outputs = self.attention(q, k)
-        outputs = torch.matmul(outputs, v)
-        outputs = outputs[:, 0:2048]
-        outputs = outputs.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
-        return self.tanh(outputs)
+    def forward(self, inputs):
+        inputs_ = inputs.view(inputs.shape[0], inputs.shape[2], -1)
+        down_data = self.down_channel(inputs)
+        inputs = inputs.transpose(1, 2)
+        root_shape = inputs.shape
+        merge_input = self.merge_channel(down_data)
+        att_data = merge_input.view(merge_input.shape[0], merge_input.shape[2], merge_input.shape[1])
+        q = self.linear1(att_data)
+        k = self.linear2(att_data)
+        v = self.linear3(att_data)
+
+        q_ = torch.cat(torch.chunk(q, self.heads, 2), 0)
+        k_ = torch.cat(torch.chunk(k, self.heads, 2), 0)
+        v_ = torch.cat(torch.chunk(v, self.heads, 2), 0)
+        outputs = self.attention(q_, k_)
+        outputs = torch.matmul(outputs, v_)
+        outputs = torch.cat(torch.chunk(outputs, self.heads, 0), 2)
+        outputs = self.linear_out(outputs)
+        outputs = inputs_ * outputs
+        outputs = outputs.view(root_shape).transpose(1, 2)
+        return outputs
 
 
 class ExtEmb(nn.Module):
@@ -309,28 +323,52 @@ class ExtEmb(nn.Module):
 class FusionNet(nn.Module):
     def __init__(self, data_h, data_w, use_ext):
         super(FusionNet, self).__init__()
-        self.w_w = nn.Parameter(torch.randn(1))
-        self.w_d = nn.Parameter(torch.randn(1))
-        self.w_c = nn.Parameter(torch.randn(1))
         self.data_h = data_h
         self.data_w = data_w
         self.use_ext = use_ext
         if use_ext:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(1, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
-        else:
             self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+        else:
+            self.cov = nn.Conv3d(2, 2, kernel_size=(2, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=False)
         self.tanh = nn.Tanh()
 
-    def forward(self, week, day, current, ext):
+    def forward(self, week, current, ext):
         if self.use_ext:
-            inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
+            inputs = torch.stack([week, current, ext], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
         else:
-            inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
-        inputs = week
-        output = self.bn(inputs)
-        output = self.cov(output)
+            inputs = torch.stack([week, current], dim=2).view(week.shape[0], 2, 2, self.data_h, self.data_w)
+        output = self.cov(inputs)
+        output = self.bn(output)
+        return self.relu(output)
+
+
+class OutNet(nn.Module):
+    def __init__(self, head=4, up_channel=16):
+        super(OutNet, self).__init__()
+        self.att_list = nn.ModuleList()
+        self.down_list = nn.ModuleList()
+        self.tanh = nn.Tanh()
+        input_size = 8
+        for i in range(4):
+            att = MultiAttention(heads=head, input_size=input_size, up_channel=up_channel)
+            self.att_list.append(att)
+            input_size //= 2
+            down_net = nn.Sequential(
+                nn.Conv3d(2, 2, kernel_size=(2, 3, 3), padding=(0, 1, 1), stride=(2, 1, 1), bias=False),
+                nn.BatchNorm3d(2),
+                nn.LeakyReLU(inplace=True),
+                nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1), stride=(1, 1, 1), bias=False),
+                nn.BatchNorm3d(2)
+            )
+            self.down_list.append(down_net)
+
+    def forward(self, inputs):
+        output = inputs
+        for i in range(3):
+            output = self.att_list[i](output)
+            output = self.down_list[i](output)
         return self.tanh(output)
 
 
@@ -377,26 +415,32 @@ class TestModule(nn.Module):
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
+        self.Out_Net = OutNet()
 
     def forward(self, inputs, ext):
-        week_data, day_data, current_data = self.split_data(inputs)
+        week_data, day_data, current_data, leak_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
-        sened_day_data = self.Day_SEN_Net(day_data)
+        # sened_day_data = self.Day_SEN_Net(day_data)
         week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
-        day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
+        # day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
         current_net_res = self.Current_Net(current_data)
-        # day_tempora_net_res = []
-        # current_net_res = []
         if self.use_ext:
             ext = self.emb(ext)
-        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
-        return result
+        fusion_res = self.fusion(week_tempora_net_res, current_net_res, ext)
+        leak_data.append(fusion_res)
+        output = torch.stack(leak_data, dim=2).view(inputs.shape[0], 2, 8, self.data_h, self.data_w)
+        output = self.Out_Net(output)
+        return output
 
     def split_data(self, data):
         trend_data = data
         day_data = data[:, :, self.wind_size - self.day_size - 1:-1, :, :]
         current_data = data[:, :, 335:336, :, :]
-        return trend_data, day_data, current_data
+        leak_data = []
+        T = 48
+        for i in range(1, 8):
+            leak_data.append(data[:, :, 336 - i * T:337 - i * T, :, :])
+        return trend_data, day_data, current_data, leak_data
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:
