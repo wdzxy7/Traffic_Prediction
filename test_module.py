@@ -327,16 +327,16 @@ class FusionNet(nn.Module):
         self.data_w = data_w
         self.use_ext = use_ext
         if use_ext:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+            self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         else:
             self.cov = nn.Conv3d(2, 2, kernel_size=(2, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=False)
         self.tanh = nn.Tanh()
 
-    def forward(self, week, current, ext):
+    def forward(self, week, current, day, ext):
         if self.use_ext:
-            inputs = torch.stack([week, current, ext], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+            inputs = torch.stack([week, current, day, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
         else:
             inputs = torch.stack([week, current], dim=2).view(week.shape[0], 2, 2, self.data_h, self.data_w)
         output = self.cov(inputs)
@@ -397,8 +397,8 @@ class TestModule(nn.Module):
         self.dila_rate_list = dila_rate_list
         self.tcn_kernel_size = tcn_kernel_size
         self.res_kernel_size = res_kernel_size
-        self.data_h = data_h
-        self.data_w = data_w
+        self.data_h = data_h // 2
+        self.data_w = data_w // 2
         # Resnet
         self.week_resnet_layers = week_resnet_layers
         self.current_resnet_layer = current_resnet_layer
@@ -415,21 +415,40 @@ class TestModule(nn.Module):
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
-        self.Out_Net = OutNet()
+        self.Out_Net = OutNet(head=4)
+        self.conv_input = nn.Sequential(nn.Conv3d(2, 2, (1, 7, 7), (1, 2, 2), (0, 3, 3), bias=False),
+                                        nn.BatchNorm3d(2),
+                                        nn.LeakyReLU(inplace=True))
+        self.unconv = nn.ConvTranspose3d(2, 2, (1, 2, 2), stride=(1, 2, 2))
+        self.bn_unconv = nn.BatchNorm3d(2)
+        self.relu_unconv = nn.LeakyReLU(inplace=True)
+        self.up_cov = nn.Sequential(self.unconv,
+                                    self.bn_unconv,
+                                    self.relu_unconv)
+        self.convOut = nn.Sequential(nn.Tanh(),
+                                     nn.Conv3d(2, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                                     nn.Tanh(),
+                                     nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                                     nn.Tanh(),
+                                     nn.Conv3d(64, 2, kernel_size=1),
+                                     )
 
     def forward(self, inputs, ext):
+        inputs = self.conv_input(inputs)
         week_data, day_data, current_data, leak_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
-        # sened_day_data = self.Day_SEN_Net(day_data)
+        sened_day_data = self.Day_SEN_Net(day_data)
         week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
-        # day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
+        day_tempora_net_res = self.Day_Tempora_Net(sened_day_data)
         current_net_res = self.Current_Net(current_data)
         if self.use_ext:
             ext = self.emb(ext)
-        fusion_res = self.fusion(week_tempora_net_res, current_net_res, ext)
+        fusion_res = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
         leak_data.append(fusion_res)
         output = torch.stack(leak_data, dim=2).view(inputs.shape[0], 2, 8, self.data_h, self.data_w)
         output = self.Out_Net(output)
+        output = self.unconv(output)
+        output = self.convOut(output)
         return output
 
     def split_data(self, data):
@@ -444,11 +463,11 @@ class TestModule(nn.Module):
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:
-            self.week_in_channel = [2, 4, 8, 16, 32, 64, 128, 128]
+            self.week_in_channel = [2, 32, 32, 32, 32, 32, 32, 32]
         else:
             self.week_in_channel = week_in_channel
         if week_out_channel is None:
-            self.week_out_channel = [4, 8, 16, 32, 64, 128, 128, 2]
+            self.week_out_channel = [32, 32, 32, 32, 32, 32, 32, 2]
         else:
             self.week_out_channel = week_out_channel
         if day_in_channel is None:
