@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 import torch
 import logging
@@ -8,32 +7,27 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-# from t_best import TestModule
-from test_module import TestModule
 from new_module import NewModule
 
 
 '''
 use new module
 seed 7687
-lr 7e-4
 '''
 
 parser = argparse.ArgumentParser(description='Parameters for my module')
+parser.add_argument('--sqe_rate', type=int, default=3, help='The squeeze rate of CovBlockAttentionNet')
+parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
+parser.add_argument('--resnet_layers', type=int, default=5, help='Number of layers of week and day data in ResNet')
+parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
+parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 parser.add_argument('--epochs', type=int, default=300, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate of optimizer')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
-parser.add_argument('--sqe_rate', type=int, default=2, help='The squeeze rate of CovBlockAttentionNet')
-parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
-parser.add_argument('--week_resnet_layers', type=int, default=2, help='Number of layers of week and day data in ResNet') # 2
-parser.add_argument('--current_resnet_layers', type=int, default=1, help='Number of layers of current data in ResNet')
-parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
-parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
-parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 
 
 def load_data():
@@ -64,10 +58,8 @@ def get_h_w():
 def train(load_sign):
     train_loader, val_loader, test_loader = load_data()
     data_h, data_w = get_h_w()
-    model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, dila_rate_list=None,
-                       tcn_kernel_size=tcn_kernel_size,  week_resnet_layers=week_resnet_layers, res_kernel_size=res_kernel_size,
-                       current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
-    # model = NewModule()
+    model = NewModule(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
+                      data_h=data_h, data_w=data_w, use_ext=use_ext)
     model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -90,7 +82,6 @@ def train(load_sign):
             ext_data = ext_data.to(device)
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
-            #loss = logcosh(y_data, y_hat)
             loss.backward()
             optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
@@ -214,17 +205,6 @@ def load_checkpoint(model, optimizer):
     return model, optimizer
 
 
-def huber(true, pred, delta):
-    loss = np.where(np.abs(true-pred) < delta,0.5*((true-pred)**2),delta*np.abs(true - pred) - 0.5*(delta**2))
-    print(loss)
-    return np.mean(loss)
-
-
-def logcosh(true, pred):
-    loss = torch.log(torch.cosh(pred - true))
-    return torch.mean(loss)
-
-
 if __name__ == '__main__':
     sav_dict = {'root': ['run_{}_log.log', 'model_rmse_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt', 'model_mea_{}_parameter.pkl'],
                 'test': ['run_{}_log_test.log', 'model_rmse_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt', 'model_mea_{}_parameter.pkl'],
@@ -239,20 +219,20 @@ if __name__ == '__main__':
     print('new module and seed is 7687')
     torch.manual_seed(7687)
     args = parser.parse_args()
+    # model parameters
     sqe_rate = args.sqe_rate
     sqe_kernel_size = args.sqe_kernel_size
-    batch_size = args.batch_size
-    week_resnet_layers = args.week_resnet_layers
-    current_resnet_layers = args.current_resnet_layers
-    tcn_kernel_size = args.tcn_kernel_size
+    resnet_layers = args.resnet_layers
     res_kernel_size = args.res_kernel_size
+    use_ext = args.use_ext
+    # train parameters
     lr = args.lr
+    batch_size = args.batch_size
     weight_decay = args.weight_decay
     epochs = args.epochs
     load = args.load
     check_point = args.check_point
     data_name = args.data_name
-    use_ext = args.use_ext
     logger = logging.getLogger(__name__)
     set_logger()
     train(load)

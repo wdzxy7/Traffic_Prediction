@@ -61,10 +61,10 @@ def deal_bj():
     len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
     train_data = mmn_all_data[0: len_train]
     train_time = all_time[0: len_train]
-    test_data = mmn_all_data[len_train: len_train + len_test]
-    test_time = all_time[len_train: len_train + len_test]
-    val_data = mmn_all_data[-len_val:]
-    val_time = all_time[-len_val:]
+    val_data = mmn_all_data[len_train: len_train + len_val]
+    val_time = all_time[len_train: len_train + len_val]
+    test_data = mmn_all_data[-len_test:]
+    test_time = all_time[-len_test:]
     # save data
     np.save(os.path.join(bj_save_path, 'raw_all_data'), all_data)
     np.save(os.path.join(bj_save_path, 'all_data'), mmn_all_data)
@@ -92,10 +92,10 @@ def deal_bike_nyc():
     len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
     train_data = mmn_all_data[0: len_train]
     train_time = all_time[0: len_train]
-    test_data = mmn_all_data[len_train: len_train + len_test]
-    test_time = all_time[len_train: len_train + len_test]
-    val_data = mmn_all_data[-len_val:]
-    val_time = all_time[-len_val:]
+    val_data = mmn_all_data[len_train: len_train + len_val]
+    val_time = all_time[len_train: len_train + len_val]
+    test_data = mmn_all_data[-len_test:]
+    test_time = all_time[-len_test:]
     np.save(os.path.join(bike_nyc_save_path, 'raw_all_data'), all_data)
     np.save(os.path.join(bike_nyc_save_path, 'all_data'), mmn_all_data)
     np.save(os.path.join(bike_nyc_save_path, 'all_time'), all_time)
@@ -122,10 +122,10 @@ def deal_taxi_nyc():
     len_train, len_val, len_test = split_data(all_data.shape[0], test_rate, val_rate)
     train_data = mmn_all_data[0: len_train]
     train_time = all_time[0: len_train]
-    test_data = mmn_all_data[len_train: len_train + len_test]
-    test_time = all_time[len_train: len_train + len_test]
-    val_data = mmn_all_data[-len_val:]
-    val_time = all_time[-len_val:]
+    val_data = mmn_all_data[len_train: len_train + len_val]
+    val_time = all_time[len_train: len_train + len_val]
+    test_data = mmn_all_data[-len_test:]
+    test_time = all_time[-len_test:]
     np.save(os.path.join(taxi_nyc_save_path, 'raw_all_data'), all_data)
     np.save(os.path.join(taxi_nyc_save_path, 'all_data'), mmn_all_data)
     np.save(os.path.join(taxi_nyc_save_path, 'all_time'), all_time)

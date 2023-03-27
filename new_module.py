@@ -160,11 +160,9 @@ class NewModule(nn.Module):
         if self.use_ext:
             ext = self.emb(ext)
         inputs = self.merge_data(inputs, ext)
-        inputs = self.up_channel(inputs)
-        output = self.Input_SEN_Net(inputs)
+        output = self.up_channel(inputs)
         for i in range(self.resnet_layers):
             output = self.Res_Net[i](output)
-        output = self.Sen_Net(output)
         output = self.Out_Net(output)
         return output.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
 

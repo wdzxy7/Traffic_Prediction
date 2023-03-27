@@ -2,14 +2,6 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-'''
-change work
-root: change channel into all 32 
-test: change channel all 32 into growth
-test2: change day in channel from all 32 into growth
-test is the best RMSE is 17.77630
-'''
-
 
 class TemporalResCovBlock(nn.Module):
     def __init__(self, causal_cov_size=3, dila_rate=4, dila_stride=1, in_channel=2, out_channel=2,
@@ -121,7 +113,6 @@ class TemporalConvNet(nn.Module):
             self.TemporalRes_blocks.append(TemporalResCovBlock(causal_cov, dila_rate, self.dila_stride,
                                                                c_in, c_out, self.resnet_layers, self.tcn_kernel_size,
                                                                self.res_kernel_size, self.data_h, self.data_w))
-        # self.CovBlockAttentionNet(self.wind_size, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
 
     def forward(self, inputs):
         # padding data seq from 336 to 337 before training
@@ -237,63 +228,6 @@ class CurrentNet(nn.Module):
         return output
 
 
-class Attention(nn.Module):
-    def __init__(self):
-        super(Attention, self).__init__()
-        self.softmax = nn.Softmax(-1)
-
-    def forward(self, Q, K):
-        d_k = K.size(-1)
-        outputs = torch.matmul(Q, torch.transpose(K, -1, -2))
-        outputs = (outputs / d_k)
-        outputs = self.softmax(outputs)
-        return outputs
-
-
-class MultiAttention(nn.Module):
-    def __init__(self, heads, input_size, up_channel):
-        super(MultiAttention, self).__init__()
-        self.heads = heads
-        self.up_channel = up_channel
-        self.input_size = up_channel
-        self.output_size = up_channel * heads
-        self.linear1 = nn.Linear(self.input_size, self.output_size, bias=False)
-        self.linear2 = nn.Linear(self.input_size, self.output_size, bias=False)
-        self.linear3 = nn.Linear(self.input_size, self.output_size, bias=False)
-        self.attention = Attention()
-        self.linear_out = nn.Linear(self.output_size, 1, bias=False)
-        self.tanh = nn.Tanh()
-        self.down_channel = nn.AdaptiveAvgPool3d((input_size, 1, 1))
-        self.merge_channel = nn.Sequential(nn.Conv3d(2, self.up_channel, 1, bias=False),
-                                           nn.BatchNorm3d(self.up_channel),
-                                           nn.LeakyReLU(inplace=True),
-                                           nn.Conv3d(self.up_channel, self.up_channel, 1, bias=False),
-                                           nn.LayerNorm([self.up_channel, input_size, 1, 1], eps=1e-6))
-        self.linear_out = nn.Linear(self.output_size, 1, bias=False)
-
-    def forward(self, inputs):
-        inputs_ = inputs.view(inputs.shape[0], inputs.shape[2], -1)
-        down_data = self.down_channel(inputs)
-        inputs = inputs.transpose(1, 2)
-        root_shape = inputs.shape
-        merge_input = self.merge_channel(down_data)
-        att_data = merge_input.view(merge_input.shape[0], merge_input.shape[2], merge_input.shape[1])
-        q = self.linear1(att_data)
-        k = self.linear2(att_data)
-        v = self.linear3(att_data)
-
-        q_ = torch.cat(torch.chunk(q, self.heads, 2), 0)
-        k_ = torch.cat(torch.chunk(k, self.heads, 2), 0)
-        v_ = torch.cat(torch.chunk(v, self.heads, 2), 0)
-        outputs = self.attention(q_, k_)
-        outputs = torch.matmul(outputs, v_)
-        outputs = torch.cat(torch.chunk(outputs, self.heads, 0), 2)
-        outputs = self.linear_out(outputs)
-        outputs = inputs_ * outputs
-        outputs = outputs.view(root_shape).transpose(1, 2)
-        return outputs
-
-
 class ExtEmb(nn.Module):
     def __init__(self, data_h, data_w):
         super(ExtEmb, self).__init__()
@@ -323,52 +257,27 @@ class ExtEmb(nn.Module):
 class FusionNet(nn.Module):
     def __init__(self, data_h, data_w, use_ext):
         super(FusionNet, self).__init__()
+        self.w_w = nn.Parameter(torch.randn(1))
+        self.w_d = nn.Parameter(torch.randn(1))
+        self.w_c = nn.Parameter(torch.randn(1))
         self.data_h = data_h
         self.data_w = data_w
         self.use_ext = use_ext
         if use_ext:
             self.cov = nn.Conv3d(2, 2, kernel_size=(4, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         else:
-            self.cov = nn.Conv3d(2, 2, kernel_size=(2, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
+            self.cov = nn.Conv3d(2, 2, kernel_size=(3, 1, 1), padding=(0, 0, 0), stride=(1, 1, 1))
         self.bn = nn.BatchNorm3d(2)
         self.relu = nn.LeakyReLU(inplace=False)
         self.tanh = nn.Tanh()
 
-    def forward(self, week, current, day, ext):
+    def forward(self, week, day, current, ext):
         if self.use_ext:
-            inputs = torch.stack([week, current, day, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
+            inputs = torch.stack([week, day, current, ext], dim=2).view(week.shape[0], 2, 4, self.data_h, self.data_w)
         else:
-            inputs = torch.stack([week, current], dim=2).view(week.shape[0], 2, 2, self.data_h, self.data_w)
-        output = self.cov(inputs)
-        output = self.bn(output)
-        return self.relu(output)
-
-
-class OutNet(nn.Module):
-    def __init__(self, head=4, up_channel=16):
-        super(OutNet, self).__init__()
-        self.att_list = nn.ModuleList()
-        self.down_list = nn.ModuleList()
-        self.tanh = nn.Tanh()
-        input_size = 8
-        for i in range(4):
-            att = MultiAttention(heads=head, input_size=input_size, up_channel=up_channel)
-            self.att_list.append(att)
-            input_size //= 2
-            down_net = nn.Sequential(
-                nn.Conv3d(2, 2, kernel_size=(2, 3, 3), padding=(0, 1, 1), stride=(2, 1, 1), bias=False),
-                nn.BatchNorm3d(2),
-                nn.LeakyReLU(inplace=True),
-                nn.Conv3d(2, 2, kernel_size=(1, 3, 3), padding=(0, 1, 1), stride=(1, 1, 1), bias=False),
-                nn.BatchNorm3d(2)
-            )
-            self.down_list.append(down_net)
-
-    def forward(self, inputs):
-        output = inputs
-        for i in range(3):
-            output = self.att_list[i](output)
-            output = self.down_list[i](output)
+            inputs = torch.stack([week, day, current], dim=2).view(week.shape[0], 2, 3, self.data_h, self.data_w)
+        output = self.bn(inputs)
+        output = self.cov(output)
         return self.tanh(output)
 
 
@@ -397,8 +306,8 @@ class TestModule(nn.Module):
         self.dila_rate_list = dila_rate_list
         self.tcn_kernel_size = tcn_kernel_size
         self.res_kernel_size = res_kernel_size
-        self.data_h = data_h // 2
-        self.data_w = data_w // 2
+        self.data_h = data_h
+        self.data_w = data_w
         # Resnet
         self.week_resnet_layers = week_resnet_layers
         self.current_resnet_layer = current_resnet_layer
@@ -415,27 +324,9 @@ class TestModule(nn.Module):
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
         self.fusion = FusionNet(self.data_h, self.data_w, self.use_ext)
-        self.Out_Net = OutNet(head=4)
-        self.conv_input = nn.Sequential(nn.Conv3d(2, 2, (1, 7, 7), (1, 2, 2), (0, 3, 3), bias=False),
-                                        nn.BatchNorm3d(2),
-                                        nn.LeakyReLU(inplace=True))
-        self.unconv = nn.ConvTranspose3d(2, 2, (1, 2, 2), stride=(1, 2, 2))
-        self.bn_unconv = nn.BatchNorm3d(2)
-        self.relu_unconv = nn.LeakyReLU(inplace=True)
-        self.up_cov = nn.Sequential(self.unconv,
-                                    self.bn_unconv,
-                                    self.relu_unconv)
-        self.convOut = nn.Sequential(nn.Tanh(),
-                                     nn.Conv3d(2, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-                                     nn.Tanh(),
-                                     nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-                                     nn.Tanh(),
-                                     nn.Conv3d(64, 2, kernel_size=1),
-                                     )
 
     def forward(self, inputs, ext):
-        inputs = self.conv_input(inputs)
-        week_data, day_data, current_data, leak_data = self.split_data(inputs)
+        week_data, day_data, current_data = self.split_data(inputs)
         sened_week_data = self.Week_SEN_Net(week_data)
         sened_day_data = self.Day_SEN_Net(day_data)
         week_tempora_net_res = self.Week_Tempora_Net(sened_week_data)
@@ -443,31 +334,22 @@ class TestModule(nn.Module):
         current_net_res = self.Current_Net(current_data)
         if self.use_ext:
             ext = self.emb(ext)
-        fusion_res = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
-        leak_data.append(fusion_res)
-        output = torch.stack(leak_data, dim=2).view(inputs.shape[0], 2, 8, self.data_h, self.data_w)
-        output = self.Out_Net(output)
-        output = self.unconv(output)
-        output = self.convOut(output)
-        return output
+        result = self.fusion(week_tempora_net_res, day_tempora_net_res, current_net_res, ext)
+        return result
 
     def split_data(self, data):
         trend_data = data
         day_data = data[:, :, self.wind_size - self.day_size - 1:-1, :, :]
         current_data = data[:, :, 335:336, :, :]
-        leak_data = []
-        T = 48
-        for i in range(1, 8):
-            leak_data.append(data[:, :, 336 - i * T:337 - i * T, :, :])
-        return trend_data, day_data, current_data, leak_data
+        return trend_data, day_data, current_data
 
     def set_channel(self, week_in_channel, week_out_channel, day_in_channel, day_out_channel):
         if week_in_channel is None:
-            self.week_in_channel = [2, 32, 32, 32, 32, 32, 32, 32]
+            self.week_in_channel = [2, 4, 8, 16, 32, 64, 128, 128]
         else:
             self.week_in_channel = week_in_channel
         if week_out_channel is None:
-            self.week_out_channel = [32, 32, 32, 32, 32, 32, 32, 2]
+            self.week_out_channel = [4, 8, 16, 32, 64, 128, 128, 2]
         else:
             self.week_out_channel = week_out_channel
         if day_in_channel is None:
