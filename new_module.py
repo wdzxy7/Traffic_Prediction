@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 class ResUnit(nn.Module):
-    def __init__(self, in_channel, out_channel, data_h, data_w, res_kernel_size):
+    def __init__(self, in_channel, out_channel, data_h, data_w, res_kernel_size, time_kernel_size):
         super(ResUnit, self).__init__()
         self.data_h = data_h
         self.data_w = data_w
@@ -12,25 +12,20 @@ class ResUnit(nn.Module):
         self.out_channel = out_channel
         self.res_kernel_size = res_kernel_size
         self.h_pad, self.w_pad = self.cal_padding()
-        self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size),
-                               padding=(self.h_pad, self.w_pad), stride=(1, 1))
-        self.bn = nn.BatchNorm2d(in_channel)
-        self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size),
-                               padding=(self.h_pad + 1, self.w_pad + 1), stride=(1, 1), dilation=2)
+        self.conv1 = nn.Conv3d(in_channel, out_channel, kernel_size=(time_kernel_size, self.res_kernel_size, self.res_kernel_size),
+                               padding=(self.h_pad, self.w_pad, self.w_pad), stride=(1, 1, 1))
+        self.bn = nn.BatchNorm3d(in_channel)
+        self.conv2 = nn.Conv3d(in_channel, out_channel, kernel_size=(time_kernel_size, self.res_kernel_size, self.res_kernel_size),
+                               padding=(self.h_pad, self.w_pad, self.w_pad), stride=(1, 1, 1))
         self.relu = nn.LeakyReLU(inplace=False)
         self.drop = nn.Dropout()
 
     def forward(self, inputs):
-        # normal cov
         output = self.relu(inputs)
-        output1 = self.conv1(output)
-        output1 = self.bn(output1)
-        output1 = self.relu(output1)
-        # dilation cov
-        output2 = self.conv2(output)
-        output2 = self.bn(output2)
-        output2 = self.relu(output2)
-        output = (output1 + output2)
+        output = self.conv1(output)
+        output = self.bn(output)
+        output = self.relu(output)
+        output = self.conv2(output)
         return output + inputs
 
     def cal_padding(self):
@@ -109,12 +104,14 @@ class ExtEmb(nn.Module):
         self.relu = nn.LeakyReLU(inplace=False)
         self.linear2 = nn.Linear(28, 10)
         self.linear3 = nn.Linear(10, 2 * self.data_h * self.data_w)
+        self.drop = nn.Dropout(p=0.5)
 
     def forward(self, ext):
         shape = ext.shape
         embed_ext = self.emb(ext)
         linear_ext = embed_ext.view(shape[0], -1)
         output = self.linear1(linear_ext)
+        output = self.drop(output)
         output = self.relu(output)
         output = self.linear2(output)
         output = self.relu(output)
@@ -130,6 +127,7 @@ class NewModule(nn.Module):
         # global
         self.heads = 1
         self.use_ext = use_ext
+        self.channel = 64
         # CovBlockAttentionNet
         self.sqe_rate = sqe_rate
         self.sqe_kernel_size = sqe_kernel_size
@@ -139,14 +137,12 @@ class NewModule(nn.Module):
         # Resnet
         self.resnet_layers = resnet_layers
         self.res_kernel_size = res_kernel_size
-        self.Input_SEN_Net = CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w)
-        self.up_channel = nn.Sequential(nn.Conv2d(38, 64, 1, 1),
-                                        nn.BatchNorm2d(64),
+        self.up_channel = nn.Sequential(nn.Conv3d(2, self.channel, 1, 1),
+                                        nn.BatchNorm3d(self.channel),
                                         nn.LeakyReLU(inplace=True))
-        self.Res_Net = self.build_resnet()
-        self.Sen_Net = CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
+        self.Res_Net, self.Down_Net = self.build_resnet()
         self.Out_Net = nn.Sequential(nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=(1, 1)),
                                      nn.BatchNorm2d(32),
                                      nn.LeakyReLU(inplace=True),
@@ -160,14 +156,18 @@ class NewModule(nn.Module):
                                      )
 
     def forward(self, inputs, ext):
+        in_data = inputs[:, :, -1:, :, :]
         if self.use_ext:
             ext = self.emb(ext)
         inputs = self.merge_data(inputs, ext)
         output = self.up_channel(inputs)
-        for i in range(self.resnet_layers):
+        for i in range(self.resnet_layers - 1):
             output = self.Res_Net[i](output)
-        output = self.Out_Net(output)
-        return output.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
+            output = self.Down_Net[i](output)
+        output = self.Out_Net(output.view(output.shape[0], output.shape[1], self.data_h, self.data_w))
+        output = output.view(inputs.shape[0], 2, 1, self.data_h, self.data_w) + in_data
+        output = self.tanh(output)
+        return output
 
     def merge_data(self, data, ext):
         current_data = []
@@ -182,16 +182,26 @@ class NewModule(nn.Module):
         leak_data.append(ext)
         data = torch.stack(current_data + day_data + leak_data, dim=1)
         shape = data.shape
-        return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
+        return data.view(shape[0], shape[2], shape[1], shape[4], shape[5])
 
     def build_resnet(self):
         res_net = nn.ModuleList()
-        for i in range(self.resnet_layers):
-            res_net.append(ResUnit(64, 64, self.data_h, self.data_w, self.res_kernel_size))
-        return res_net
-
-    def build_sennet(self):
-        sen_net = nn.ModuleList()
-        for i in range(self.resnet_layers):
-            sen_net.append(CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w))
-        return sen_net
+        down_net = nn.ModuleList()
+        for i in range(4):
+            res_net.append(ResUnit(self.channel, self.channel, self.data_h, self.data_w, self.res_kernel_size, self.res_kernel_size))
+            if i < 2:
+                time_down = nn.Sequential(
+                    nn.Conv3d(self.channel, self.channel, kernel_size=(3, 3, 3), stride=(2, 1, 1), padding=(0, 1, 1),
+                              bias=False),
+                    nn.BatchNorm3d(self.channel),
+                    nn.LeakyReLU(inplace=True)
+                )
+            else:
+                time_down = nn.Sequential(
+                    nn.Conv3d(self.channel, self.channel, kernel_size=(3, 3, 3), stride=(2, 1, 1), padding=(1, 1, 1),
+                              bias=False),
+                    nn.BatchNorm3d(self.channel),
+                    nn.LeakyReLU(inplace=True)
+                )
+            down_net.append(time_down)
+        return res_net, down_net
