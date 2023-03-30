@@ -16,15 +16,21 @@ class ResUnit(nn.Module):
                                padding=(self.h_pad, self.w_pad), stride=(1, 1))
         self.bn = nn.BatchNorm2d(in_channel)
         self.conv2 = nn.Conv2d(in_channel, out_channel, kernel_size=(self.res_kernel_size, self.res_kernel_size),
-                               padding=(self.h_pad, self.w_pad), stride=(1, 1))
+                               padding=(self.h_pad + 1, self.w_pad + 1), stride=(1, 1), dilation=2)
         self.relu = nn.LeakyReLU(inplace=False)
+        self.drop = nn.Dropout()
 
     def forward(self, inputs):
+        # normal cov
         output = self.relu(inputs)
-        output = self.conv1(output)
-        output = self.bn(output)
-        output = self.relu(output)
-        output = self.conv2(output)
+        output1 = self.conv1(output)
+        output1 = self.bn(output1)
+        output1 = self.relu(output1)
+        # dilation cov
+        output2 = self.conv2(output)
+        output2 = self.bn(output2)
+        output2 = self.relu(output2)
+        output = (output1 + output2)
         return output + inputs
 
     def cal_padding(self):
@@ -94,40 +100,35 @@ class CovBlockAttentionNet(nn.Module):
 
 
 class ExtEmb(nn.Module):
-    def __init__(self, data_h, data_w, ext_dim):
+    def __init__(self, data_h, data_w):
         super(ExtEmb, self).__init__()
         self.data_h = data_h
         self.data_w = data_w
-        self.ext_dim = ext_dim
         self.emb = nn.Embedding(num_embeddings=4, embedding_dim=1)
         self.linear1 = nn.Linear(4 * 28, 28)
         self.relu = nn.LeakyReLU(inplace=False)
         self.linear2 = nn.Linear(28, 10)
-        self.linear3 = nn.Linear(10, ext_dim * self.data_h * self.data_w)
-        self.drop = nn.Dropout(p=0.5)
+        self.linear3 = nn.Linear(10, 2 * self.data_h * self.data_w)
 
     def forward(self, ext):
         shape = ext.shape
         embed_ext = self.emb(ext)
         linear_ext = embed_ext.view(shape[0], -1)
         output = self.linear1(linear_ext)
-        output = self.drop(output)
         output = self.relu(output)
         output = self.linear2(output)
         output = self.relu(output)
         output = self.linear3(output)
-        output = output.view(shape[0], self.ext_dim, self.data_h, self.data_w)
+        output = output.view(shape[0], 2, 1, self.data_h, self.data_w)
         return output
 
 
 class NewModule(nn.Module):
-    def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32, use_ext=True,
-                 ext_dim=4):
+    def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32, use_ext=True):
         super(NewModule, self).__init__()
         # parameter
         # global
         self.heads = 1
-        self.ext_dim = ext_dim
         self.use_ext = use_ext
         # CovBlockAttentionNet
         self.sqe_rate = sqe_rate
@@ -140,8 +141,8 @@ class NewModule(nn.Module):
         self.res_kernel_size = res_kernel_size
         self.Input_SEN_Net = CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.tanh = nn.Tanh()
-        self.emb = ExtEmb(self.data_h, self.data_w, self.ext_dim)
-        self.up_channel = nn.Sequential(nn.Conv2d(2 * ext_dim, 64, 1, 1),
+        self.emb = ExtEmb(self.data_h, self.data_w)
+        self.up_channel = nn.Sequential(nn.Conv2d(38, 64, 1, 1),
                                         nn.BatchNorm2d(64),
                                         nn.LeakyReLU(inplace=True))
         self.Res_Net = self.build_resnet()
@@ -157,10 +158,6 @@ class NewModule(nn.Module):
                                      nn.Conv2d(2, 2, kernel_size=1, stride=1),
                                      nn.Tanh()
                                      )
-        self.w_l = nn.Parameter(torch.randn(1))
-        self.w_d = nn.Parameter(torch.randn(1))
-        self.w_c = nn.Parameter(torch.randn(1))
-        self.w_e = nn.Parameter(torch.randn(1))
 
     def forward(self, inputs, ext):
         if self.use_ext:
@@ -173,20 +170,19 @@ class NewModule(nn.Module):
         return output.view(inputs.shape[0], 2, 1, self.data_h, self.data_w)
 
     def merge_data(self, data, ext):
-        shape = data.shape
         current_data = []
         leak_data = []
         day_data = []
         T = 48
-        for i in range(1, self.ext_dim + 1):
+        for i in range(1, 8):
             leak_data.append(data[:, :, 336 - i * T:337 - i * T, :, :])
             day_data.append(data[:, :, 335 - (i - 1) * T:336 - (i - 1) * T, :, :])
-            current_data.append(data[:, :, 336 - i:337 - i, :, :])
-        leak_data = torch.stack(leak_data, dim=2).view(shape[0], 2 * self.ext_dim, shape[3], shape[4])
-        day_data = torch.stack(day_data, dim=2).view(shape[0], 2 * self.ext_dim, shape[3], shape[4])
-        current_data = torch.stack(current_data, dim=2).view(shape[0], 2 * self.ext_dim, shape[3], shape[4])
-        data = leak_data * self.w_l + day_data * self.w_d + current_data * self.w_c + ext * self.w_e
-        return data
+            if i < 5:
+                current_data.append(data[:, :, 336 - i:337 - i, :, :])
+        leak_data.append(ext)
+        data = torch.stack(current_data + day_data + leak_data, dim=1)
+        shape = data.shape
+        return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
 
     def build_resnet(self):
         res_net = nn.ModuleList()
