@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import torch
 import logging
@@ -15,15 +16,16 @@ use new module
 seed 7687
 '''
 
-parser = argparse.ArgumentParser(description='Parameters for my module')
+parser = argparse.ArgumentParser(description='Parameters for my model')
 parser.add_argument('--sqe_rate', type=int, default=3, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
-parser.add_argument('--resnet_layers', type=int, default=5, help='Number of layers of week and day data in ResNet')
+parser.add_argument('--resnet_layers', type=int, default=4, help='Number of layers of week and day data in ResNet')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
+parser.add_argument('--ext_dim', type=int, default=4, help='The dim of external data')  # now test is 4
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-parser.add_argument('--epochs', type=int, default=300, help='Epochs of train')
+parser.add_argument('--epochs', type=int, default=150, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
-parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate of optimizer')
+parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of optimizer')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
@@ -83,7 +85,8 @@ def train(load_sign):
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
             loss.backward()
-            optimizer.step()
+            if i < 69:
+                optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
         test_model(i, model, criterion, val_loader, test_loader)
         if test_count % 5 == 0:
@@ -106,10 +109,6 @@ def test_model(i, model, criterion, val_loader, test_loader):
         if val_RMSE < min_rmse:
             min_rmse = val_RMSE
             path = os.path.join(model_path, sav_dict[key][1].format(data_name))
-            torch.save(model.state_dict(), path)
-        if val_MAE < min_mae:
-            min_rmse = val_RMSE
-            path = os.path.join(model_path, sav_dict[key][4].format(data_name))
             torch.save(model.state_dict(), path)
         logger.info(str(mess))
         test_RMSE, test_MAE, loss = cal_rmse(model, criterion, test_loader)
@@ -197,7 +196,7 @@ def save_checkpoint(model, epoch, optimizer):
 def load_checkpoint(model, optimizer):
     global epochs
     check_path = './model/'
-    check_model_path = os.path.join(check_path, sav_dict[key][3].format(check_point))
+    check_model_path = os.path.join(check_path, sav_dict[key][2].format(data_name, check_point))
     train_state = torch.load(check_model_path)
     model.load_state_dict(train_state['model_state_dict'])
     optimizer.load_state_dict(train_state['optimizer_state_dict'])
@@ -206,18 +205,22 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
-    sav_dict = {'root': ['run_{}_log.log', 'model_rmse_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt', 'model_mea_{}_parameter.pkl'],
-                'test': ['run_{}_log_test.log', 'model_rmse_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt', 'model_mea_{}_parameter.pkl'],
-                'test2': ['run_{}_log_test2.log', 'model_rmse_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt', 'model_{:03d}_test2.pt', 'model_mea_{}_parameter.pkl'],
-                'c32': ['run_{}_log_c32.log', 'model_rmse_{}_parameter_c32.pkl', 'model_{}_{:03d}_c32.pt', 'model_{:03d}_c32.pt', 'model_mea_{}_parameter_c32.pkl'],
-                'tb': ['run_{}_log_tb.log', 'model_rmse_{}_parameter_tb.pkl', 'model_{}_{:03d}_tb.pt', 'model_{:03d}_tb.pt', 'model_mea_{}_parameter_tb.pkl'],
-                'new': ['run_{}_log_new.log', 'model_rmse_{}_parameter_new.pkl', 'model_{}_{:03d}_new.pt', 'model_{:03d}_new.pt', 'model_mea_{}_parameter_new.pkl']}
-    key = 'test'
-    device = torch.device(2)
+    sav_dict = {'test1': ['run_{}_log_test1.log', 'model_{}_parameter_test1.pkl', 'model_{}_{:03d}_test1.pt'],
+                'test2': ['run_{}_log_test2.log', 'model_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt'],
+                'test3': ['run_{}_log_test3.log', 'model_{}_parameter_test3.pkl', 'model_{}_{:03d}_test3.pt'],
+                'test4': ['run_{}_log_test4.log', 'model_{}_parameter_test4.pkl', 'model_{}_{:03d}_test4.pt'],
+                'test5': ['run_{}_log_test5.log', 'model_{}_parameter_test5.pkl', 'model_{}_{:03d}_test5.pt'],
+                'test6': ['run_{}_log_test6.log', 'model_{}_parameter_test6.pkl', 'model_{}_{:03d}_test6.pt'],
+                'test7': ['run_{}_log_test7.log', 'model_{}_parameter_test7.pkl', 'model_{}_{:03d}_test7.pt'],
+                'test8': ['run_{}_log_test8.log', 'model_{}_parameter_test8.pkl', 'model_{}_{:03d}_test8.pt']
+                }
+    key = 'test8'
+    device = torch.device(1)
     min_rmse = 16.25069473853743
-    min_mae = 9.865
-    print('new module and seed is 7687')
-    torch.manual_seed(7687)
+    change = 'use new cov and layers 5'
+    seed = 7687
+    print('running on: {}, changes: {}, seed: {}'.format(key, change, seed))
+    torch.manual_seed(seed)
     args = parser.parse_args()
     # model parameters
     sqe_rate = args.sqe_rate
@@ -225,6 +228,7 @@ if __name__ == '__main__':
     resnet_layers = args.resnet_layers
     res_kernel_size = args.res_kernel_size
     use_ext = args.use_ext
+    ext_dim = args.ext_dim
     # train parameters
     lr = args.lr
     batch_size = args.batch_size
