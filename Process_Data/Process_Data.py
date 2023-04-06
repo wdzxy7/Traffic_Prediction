@@ -182,5 +182,5 @@ if __name__ == '__main__':
     data_path = '../Data'
     save_path = '../processed'
     deal_bj()
-    # deal_taxi_nyc()
-    # deal_bike_nyc()
+    deal_taxi_nyc()
+    deal_bike_nyc()

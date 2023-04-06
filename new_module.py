@@ -28,7 +28,6 @@ class ResUnit(nn.Module):
         output = output + output1
         return output + inputs
 
-
     def cal_padding(self):
         h_pad = (self.data_h - 1) * 1 + self.res_kernel_size - self.data_h
         w_pad = (self.data_w - 1) * 1 + self.res_kernel_size - self.data_w
@@ -127,12 +126,12 @@ class CovBlockAttentionNet(nn.Module):
 
 
 class ExtEmb(nn.Module):
-    def __init__(self, data_h, data_w):
+    def __init__(self, data_h, data_w, ext_dim):
         super(ExtEmb, self).__init__()
         self.data_h = data_h
         self.data_w = data_w
         self.emb = nn.Embedding(num_embeddings=4, embedding_dim=1)
-        self.linear1 = nn.Linear(4 * 28, 28)
+        self.linear1 = nn.Linear(4 * ext_dim, 28)
         self.relu = nn.LeakyReLU(inplace=False)
         self.linear2 = nn.Linear(28, 10)
         self.linear3 = nn.Linear(10, 2 * self.data_h * self.data_w)
@@ -153,12 +152,15 @@ class ExtEmb(nn.Module):
 
 
 class NewModule(nn.Module):
-    def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32, use_ext=True):
+    def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32,
+                 use_ext=True, trend_len=7, current_len=4, ext_dim=28):
         super(NewModule, self).__init__()
         # parameter
         # global
         self.heads = 1
         self.use_ext = use_ext
+        self.trend_len = trend_len
+        self.current_lend = current_len
         # CovBlockAttentionNet
         self.sqe_rate = sqe_rate
         self.sqe_kernel_size = sqe_kernel_size
@@ -170,8 +172,9 @@ class NewModule(nn.Module):
         self.res_kernel_size = res_kernel_size
         self.Input_SEN_Net = CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.tanh = nn.Tanh()
-        self.emb = ExtEmb(self.data_h, self.data_w)
-        self.up_channel = nn.Sequential(nn.Conv2d(38, 64, 1, 1),
+        self.emb = ExtEmb(self.data_h, self.data_w, ext_dim)
+        c_in = (trend_len * 2 + current_len + 1) * 2
+        self.up_channel = nn.Sequential(nn.Conv2d(c_in, 64, 1, 1),
                                         nn.BatchNorm2d(64),
                                         nn.LeakyReLU(inplace=True))
         self.Res_Net = self.build_resnet()
@@ -208,10 +211,10 @@ class NewModule(nn.Module):
         leak_data = []
         day_data = []
         T = 48
-        for i in range(1, 8):
+        for i in range(1, self.trend_len + 1):
             leak_data.append(data[:, :, 336 - i * T:337 - i * T, :, :])
             day_data.append(data[:, :, 335 - (i - 1) * T:336 - (i - 1) * T, :, :])
-            if i < 5:
+            if i < self.current_lend + 1:
                 current_data.append(data[:, :, 336 - i:337 - i, :, :])
         leak_data.append(ext)
         data = torch.stack(current_data + day_data + leak_data, dim=1)

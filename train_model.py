@@ -1,6 +1,6 @@
 import os
-import random
 import sys
+import time
 import torch
 import logging
 import argparse
@@ -22,7 +22,7 @@ lr 7e-4
 parser = argparse.ArgumentParser(description='Parameters for my module')
 parser.add_argument('--epochs', type=int, default=300, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
-parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate of optimizer')
+parser.add_argument('--lr', type=float, default=9e-4, help='Learning rate of optimizer')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
 parser.add_argument('--sqe_rate', type=int, default=2, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
@@ -31,7 +31,7 @@ parser.add_argument('--current_resnet_layers', type=int, default=1, help='Number
 parser.add_argument('--tcn_kernel_size', type=int, default=3, help='TCN convolution kernel size')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
-parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
+parser.add_argument('--check_point', type=int, default=69, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 
@@ -64,10 +64,12 @@ def get_h_w():
 def train(load_sign):
     train_loader, val_loader, test_loader = load_data()
     data_h, data_w = get_h_w()
+    '''
     model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, dila_rate_list=None,
                        tcn_kernel_size=tcn_kernel_size,  week_resnet_layers=week_resnet_layers, res_kernel_size=res_kernel_size,
                        current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
-    # model = NewModule()
+    '''
+    model = NewModule()
     model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -81,16 +83,11 @@ def train(load_sign):
         for _, batch_data in enumerate(train_loader, 1):
             # model.train()
             optimizer.zero_grad()
-            x_data = batch_data[0]
-            ext_data = batch_data[2]
-            x_data = x_data.clone().detach()
-            ext_data = ext_data.clone().detach()
-            x_data = x_data.to(device)
+            x_data = batch_data[0].to(device)
             y_data = batch_data[1].to(device)
-            ext_data = ext_data.to(device)
+            ext_data = batch_data[2].to(device)
             y_hat = model(x_data, ext_data)
             loss = criterion(y_hat, y_data)
-            #loss = logcosh(y_data, y_hat)
             loss.backward()
             optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
@@ -205,8 +202,8 @@ def save_checkpoint(model, epoch, optimizer):
 
 def load_checkpoint(model, optimizer):
     global epochs
-    check_path = './model/'
-    check_model_path = os.path.join(check_path, sav_dict[key][3].format(check_point))
+    check_path = './checkpoints/' + data_name
+    check_model_path = os.path.join(check_path, sav_dict[key][2].format(data_name, check_point))
     train_state = torch.load(check_model_path)
     model.load_state_dict(train_state['model_state_dict'])
     optimizer.load_state_dict(train_state['optimizer_state_dict'])
@@ -214,30 +211,21 @@ def load_checkpoint(model, optimizer):
     return model, optimizer
 
 
-def huber(true, pred, delta):
-    loss = np.where(np.abs(true-pred) < delta,0.5*((true-pred)**2),delta*np.abs(true - pred) - 0.5*(delta**2))
-    print(loss)
-    return np.mean(loss)
-
-
-def logcosh(true, pred):
-    loss = torch.log(torch.cosh(pred - true))
-    return torch.mean(loss)
-
-
 if __name__ == '__main__':
-    sav_dict = {'root': ['run_{}_log.log', 'model_rmse_{}_parameter.pkl', 'model_{}_{:03d}.pt', 'model_{:03d}.pt', 'model_mea_{}_parameter.pkl'],
-                'test': ['run_{}_log_test.log', 'model_rmse_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt', 'model_{:03d}_test.pt', 'model_mea_{}_parameter.pkl'],
-                'test2': ['run_{}_log_test2.log', 'model_rmse_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt', 'model_{:03d}_test2.pt', 'model_mea_{}_parameter.pkl'],
-                'c32': ['run_{}_log_c32.log', 'model_rmse_{}_parameter_c32.pkl', 'model_{}_{:03d}_c32.pt', 'model_{:03d}_c32.pt', 'model_mea_{}_parameter_c32.pkl'],
-                'tb': ['run_{}_log_tb.log', 'model_rmse_{}_parameter_tb.pkl', 'model_{}_{:03d}_tb.pt', 'model_{:03d}_tb.pt', 'model_mea_{}_parameter_tb.pkl'],
-                'new': ['run_{}_log_new.log', 'model_rmse_{}_parameter_new.pkl', 'model_{}_{:03d}_new.pt', 'model_{:03d}_new.pt', 'model_mea_{}_parameter_new.pkl']}
-    key = 'test'
-    device = torch.device(2)
+    sav_dict = {'root': ['run_{}_log.log', 'model_{}_parameter.pkl', 'model_{}_{:03d}.pt'],
+                'test': ['run_{}_log_test.log', 'model_{}_parameter_test.pkl', 'model_{}_{:03d}_test.pt'],
+                'test2': ['run_{}_log_test2.log', 'model_{}_parameter_test2.pkl', 'model_{}_{:03d}_test2.pt'],
+                'test3': ['run_{}_log_test3.log', 'model_{}_parameter_test3.pkl', 'model_{}_{:03d}_test3.pt'],
+                'test4': ['run_{}_log_test4.log', 'model_{}_parameter_test4.pkl', 'model_{}_{:03d}_test4.pt'],
+                'test5': ['run_{}_log_test5.log', 'model_{}_parameter_test5.pkl', 'model_{}_{:03d}_test5.pt'],
+                'test6': ['run_{}_log_test6.log', 'model_{}_parameter_test6.pkl', 'model_{}_{:03d}_test6.pt']}
+    key = 'test4'
+    device = torch.device(4)
     min_rmse = 16.25069473853743
     min_mae = 9.865
-    print('new module and seed is 7687')
+    print('{}:  lr 9 seed is {}'.format(key, 7687))
     torch.manual_seed(7687)
+    torch.cuda.manual_seed(7687)
     args = parser.parse_args()
     sqe_rate = args.sqe_rate
     sqe_kernel_size = args.sqe_kernel_size
