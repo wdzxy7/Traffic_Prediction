@@ -281,11 +281,11 @@ class FusionNet(nn.Module):
         return self.tanh(output)
 
 
-class TestModule(nn.Module):
+class ResTCN(nn.Module):
     def __init__(self, wind_size=7*48, batch_size=2, sqe_rate=3, sqe_kernel_size=3, dila_rate_list=None, tcn_kernel_size=3, week_resnet_layers=5,
                  current_resnet_layer=10, week_in_channel=None, week_out_channel=None, res_kernel_size=3, data_h=32, data_w=32,
                  day_in_channel=None, day_out_channel=None, use_ext=True):
-        super(TestModule, self).__init__()
+        super(ResTCN, self).__init__()
         # parameter
         # global
         self.batch_size = batch_size

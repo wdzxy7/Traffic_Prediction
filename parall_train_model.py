@@ -8,7 +8,7 @@ import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
 import torch.distributed as dist
-from test_module import TestModule
+from ResTCN_module import ResTCN
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 
@@ -60,7 +60,7 @@ def get_h_w():
 def train(load_sign):
     train_loader, val_loader, test_loader, sampler_train = load_data()
     data_h, data_w = get_h_w()
-    model = TestModule(wind_size=7 * 48, batch_size=batch_size, sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, dila_rate_list=None,
+    model = ResTCN(wind_size=7 * 48, batch_size=batch_size, sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, dila_rate_list=None,
                        tcn_kernel_size=tcn_kernel_size,  week_resnet_layers=week_resnet_layers, res_kernel_size=res_kernel_size,
                        current_resnet_layer=current_resnet_layers, data_h=data_h, data_w=data_w, use_ext=use_ext)
     torch.cuda.set_device(device)

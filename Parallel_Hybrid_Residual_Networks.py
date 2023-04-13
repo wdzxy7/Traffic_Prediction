@@ -2,6 +2,9 @@ import torch
 import numpy as np
 import torch.nn as nn
 
+'''
+Parallel Hybrid Residual Networks
+'''
 
 class ResUnit(nn.Module):
     def __init__(self, in_channel, out_channel, data_h, data_w, res_kernel_size):
@@ -151,10 +154,10 @@ class ExtEmb(nn.Module):
         return output
 
 
-class NewModule(nn.Module):
+class PHRNet(nn.Module):
     def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32,
                  use_ext=True, trend_len=7, current_len=4, ext_dim=28):
-        super(NewModule, self).__init__()
+        super(PHRNet, self).__init__()
         # parameter
         # global
         self.heads = 1
@@ -170,7 +173,6 @@ class NewModule(nn.Module):
         # Resnet
         self.resnet_layers = resnet_layers
         self.res_kernel_size = res_kernel_size
-        self.Input_SEN_Net = CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w)
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w, ext_dim)
         c_in = (trend_len * 2 + current_len + 1) * 2
@@ -226,12 +228,6 @@ class NewModule(nn.Module):
         for i in range(self.resnet_layers):
             res_net.append(ResUnit(64, 64, self.data_h, self.data_w, self.res_kernel_size))
         return res_net
-
-    def build_sennet(self):
-        sen_net = nn.ModuleList()
-        for i in range(self.resnet_layers):
-            sen_net.append(CovBlockAttentionNet(64, self.sqe_rate, self.sqe_kernel_size, self.data_h, self.data_w))
-        return sen_net
 
     def build_dila_resnet(self):
         dila_net = nn.ModuleList()

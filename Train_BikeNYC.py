@@ -8,27 +8,27 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-from new_module import NewModule
+from Parallel_Hybrid_Residual_Networks import PHRNet
 
 
 parser = argparse.ArgumentParser(description='Parameters for my model')
 parser.add_argument('--sqe_rate', type=int, default=3, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
-parser.add_argument('--resnet_layers', type=int, default=8, help='Number of layers of week and day data in ResNet')
+parser.add_argument('--resnet_layers', type=int, default=8, help='Number of layers of week and day data in ResNet')  # best8
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--ext_dim', type=int, default=24, help='The dim of external data')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')  # default 7
-parser.add_argument('--current_day', type=int, default=5, help='The length of current data')  # default 4
+parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')  # best 7
+parser.add_argument('--current_day', type=int, default=5, help='The length of current data')  # best 5
 parser.add_argument('--epochs', type=int, default=150, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
-parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of optimizer')
+parser.add_argument('--lr', type=float, default=8e-4, help='Learning rate of optimizer')  # best 8
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='BikeNYC', help='Train data name')
-parser.add_argument('--gpu_num', type=int, default=6, help='Choose which GPU to use')
-parser.add_argument('--test_num', type=str, default='0', help='Just for test')
+parser.add_argument('--gpu_num', type=int, default=5, help='Choose which GPU to use')
+parser.add_argument('--test_num', type=str, default='1', help='Just for test')
 
 
 def load_data():
@@ -59,7 +59,7 @@ def get_h_w():
 def train(load_sign):
     train_loader, val_loader, test_loader = load_data()
     data_h, data_w = get_h_w()
-    model = NewModule(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
+    model = PHRNet(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
                       data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len, ext_dim=ext_dim)
     model.to(device)
     criterion = nn.L1Loss()
@@ -89,7 +89,8 @@ def train(load_sign):
         if test_count % 5 == 0:
             save_checkpoint(model, i, optimizer)
         test_count += 1
-        stepLR.step()
+        if i < 82:
+            stepLR.step()
 
 
 def test_model(i, model, criterion, val_loader, test_loader):
@@ -203,8 +204,8 @@ def load_checkpoint(model, optimizer):
 
 if __name__ == '__main__':
     min_rmse = 4.8
-    seed = 7687
-    # seed = random.randint(7000, 8000)
+    seed = 4535  # 2180
+    seed = random.randint(1, 10000)
     args = parser.parse_args()
     test_num = args.test_num
     gpu_num = args.gpu_num
@@ -235,5 +236,5 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     set_logger()
     print(args)
-    print('running on: {} real step_size=20, seed={}'.format(test_key, seed))
+    print('running on: {} real step=0.2, seed={}'.format(test_key, seed))
     train(load)

@@ -8,27 +8,27 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-from new_module import NewModule
+from Parallel_Hybrid_Residual_Networks import PHRNet
 
 
 parser = argparse.ArgumentParser(description='Parameters for my model')
 parser.add_argument('--sqe_rate', type=int, default=3, help='The squeeze rate of CovBlockAttentionNet')
 parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
-parser.add_argument('--resnet_layers', type=int, default=4, help='Number of layers of week and day data in ResNet')
+parser.add_argument('--resnet_layers', type=int, default=8, help='Number of layers of week and day data in ResNet')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
-parser.add_argument('--ext_dim', type=int, default=4, help='The dim of external data')
+parser.add_argument('--ext_dim', type=int, default=9, help='The dim of external data')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')  # default 7
-parser.add_argument('--current_day', type=int, default=5, help='The length of current data')  # default 4
+parser.add_argument('--trend_day', type=int, default=6, help='The length of trend and leak data')  # default 7
+parser.add_argument('--current_day', type=int, default=3, help='The length of current data')  # default 3
 parser.add_argument('--epochs', type=int, default=150, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of optimizer')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay of optimizer')
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
-parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
+parser.add_argument('--data_name', type=str, default='TaxiCQ', help='Train data name')
 parser.add_argument('--gpu_num', type=int, default=4, help='Choose which GPU to use')
-parser.add_argument('--test_num', type=str, default='10', help='Just for test')
+parser.add_argument('--test_num', type=str, default='1', help='Just for test')
 
 
 def load_data():
@@ -53,19 +53,21 @@ def get_h_w():
     elif data_name == 'TaxiNYC':
         data_h = 15
         data_w = 5
+    elif data_name == 'TaxiCQ':
+        data_h = 20
+        data_w = 25
     return data_h, data_w
 
 
 def train(load_sign):
     train_loader, val_loader, test_loader = load_data()
     data_h, data_w = get_h_w()
-    model = NewModule(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
+    model = PHRNet(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
                       data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len, ext_dim=ext_dim)
     model.to(device)
-    # criterion = nn.MSELoss()
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    stepLR = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    stepLR = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
     show_parameter(model)
     if load_sign:
         model, optimizer = load_checkpoint(model, optimizer)
@@ -140,16 +142,19 @@ def cal_rmse(model, criterion, data_loader):
 
 
 def inverse_mmn(img):
-    data_max = 1292
+    data_max = 2000
     data_min = 0
-    if data_name == 'Taxi_Bj':
+    if data_name == 'TaxiBJ':
         data_max = 1292
         data_min = 0
-    elif data_name == 'Bike_NYC':
+    elif data_name == 'BikeNYC':
         data_max = 267
         data_min = 0
-    elif data_name == 'Taxi_NYC':
+    elif data_name == 'TaxiNYC':
         data_max = 1852
+        data_min = 0
+    elif data_name == 'TaxiCQ':
+        data_max = 2000
         data_min = 0
     img = (img + 1.) / 2.
     img = 1. * img * (data_max - data_min) + data_min
@@ -203,8 +208,9 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
-    min_rmse = 16.30069473853743
-    seed = 7687
+    min_rmse = 20.3
+    seed = 1305 # 7132
+    # seed = random.randint(1, 10000)
     args = parser.parse_args()
     test_num = args.test_num
     gpu_num = args.gpu_num
@@ -234,7 +240,6 @@ if __name__ == '__main__':
     data_name = args.data_name
     logger = logging.getLogger(__name__)
     set_logger()
-    change = 'change trend day:{} current day:{}'.format(trend_len, current_len)
     print(args)
-    print('running on: {}, changes: {}, seed: {}'.format(test_key, change, seed))
+    print('running on: {} real step_size=20, seed={}'.format(test_key, seed))
     train(load)

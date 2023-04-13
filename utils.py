@@ -18,7 +18,8 @@ class FlowDataset(data.Dataset):
         self.time_data = None
         self.data_len = 0
         self.use_ext = use_ext
-        self.meteorol_data = self.get_all_meteorol()
+        if data_name != 'TaxiCQ':
+            self.meteorol_data = self.get_all_meteorol()
         self.load_data()
 
     def __getitem__(self, index):
@@ -39,8 +40,11 @@ class FlowDataset(data.Dataset):
             return np.asarray([])
         vec_time = self.timestamp2vec(time_data)
         holiday_data = self.load_holiday([str(int(x)) for x in time_data])
-        meteorol = self.load_meteorol(time_data)
-        return np.hstack([vec_time, holiday_data, meteorol])
+        if self.data_name != 'TaxiCQ':
+            meteorol = self.load_meteorol(time_data)
+            return np.hstack([vec_time, holiday_data, meteorol])
+        else:
+            return np.hstack([vec_time, holiday_data])
 
     # copy from astcn
     def timestamp2vec(self, timestamps):
@@ -137,5 +141,9 @@ class FlowDataset(data.Dataset):
                 self.holidays = f.readlines()
         elif self.data_name == 'TaxiNYC':
             fname = os.path.join(self.raw_data_path, self.data_name, 'Holiday.txt')
+            with open(fname, 'r') as f:
+                self.holidays = f.readlines()
+        elif self.data_name == 'TaxiCQ':
+            fname = os.path.join(self.raw_data_path, self.data_name, 'CQ_Holiday.txt')
             with open(fname, 'r') as f:
                 self.holidays = f.readlines()
