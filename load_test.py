@@ -70,7 +70,7 @@ def test():
                       data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len, ext_dim=ext_dim)
     model.load_state_dict(torch.load(model_path))
     model.to(device)
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     show_parameter(model)
     test_model(model, criterion, val_loader, test_loader)
 

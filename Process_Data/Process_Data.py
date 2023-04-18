@@ -85,6 +85,7 @@ def deal_bike_nyc():
         os.makedirs(bike_nyc_save_path)
     fpath = os.path.join(data_path, 'BikeNYC', 'NYC14_M16x8_T60_NewEnd.h5')
     all_data, all_time = load_data(fpath)
+    all_data, all_time = clean_data(all_data, all_time)
     print('all data shape', all_data.shape)
     mmn = MinMaxNormalization()
     mmn.fit(all_data)
@@ -115,6 +116,7 @@ def deal_taxi_nyc():
         os.makedirs(taxi_nyc_save_path)
     fpath = os.path.join(data_path, 'TaxiNYC', 'NYC2014.h5')
     all_data, all_time = load_data(fpath)
+    all_data, all_time = clean_data(all_data, all_time)
     print('all data shape', all_data.shape)
     mmn = MinMaxNormalization()
     mmn.fit(all_data)
@@ -145,6 +147,7 @@ def deal_taxi_cq():
         os.makedirs(taxi_nyc_save_path)
     fpath = os.path.join(data_path, 'TaxiCQ', 'TaxiCQ_grid.h5')
     all_data, all_time = load_data(fpath)
+    all_data, all_time = clean_data(all_data, all_time)
     print('all data shape', all_data.shape)
     mmn = MinMaxNormalization()
     mmn.fit(all_data)
@@ -178,8 +181,8 @@ def split_data(len_alldata, test_percent, val_percent):
 def load_data(fpath):
     # read data file
     with h5py.File(fpath) as f:
-        flow_data = f['data'].value
-        time_data = f['date'].value
+        flow_data = f['data'][()]
+        time_data = f['date'][()]
     return flow_data, time_data
 
 
@@ -211,7 +214,7 @@ if __name__ == '__main__':
     val_rate = 0.1
     data_path = '../Data'
     save_path = '../processed'
-    deal_bj()
+    # deal_bj()
     # deal_taxi_nyc()
     # deal_bike_nyc()
-    deal_taxi_cq()
+    # deal_taxi_cq()

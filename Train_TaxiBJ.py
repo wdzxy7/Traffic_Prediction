@@ -18,8 +18,8 @@ parser.add_argument('--resnet_layers', type=int, default=4, help='Number of laye
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
 parser.add_argument('--ext_dim', type=int, default=4, help='The dim of external data')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
-parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')  # default 7
-parser.add_argument('--current_day', type=int, default=5, help='The length of current data')  # default 4
+parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')
+parser.add_argument('--current_day', type=int, default=5, help='The length of current data')
 parser.add_argument('--epochs', type=int, default=150, help='Epochs of train')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size of dataloader')
 parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate of optimizer')
@@ -236,5 +236,5 @@ if __name__ == '__main__':
     set_logger()
     change = 'change trend day:{} current day:{}'.format(trend_len, current_len)
     print(args)
-    print('running on: {}, changes: {}, seed: {}'.format(test_key, change, seed))
+    print('single dilation cnn running on: {}, changes: {}, seed: {}'.format(test_key, change, seed))
     train(load)

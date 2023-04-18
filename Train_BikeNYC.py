@@ -27,16 +27,16 @@ parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay 
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='BikeNYC', help='Train data name')
-parser.add_argument('--gpu_num', type=int, default=5, help='Choose which GPU to use')
+parser.add_argument('--gpu_num', type=int, default=7, help='Choose which GPU to use')
 parser.add_argument('--test_num', type=str, default='1', help='Just for test')
 
 
 def load_data():
-    train_dataset = FlowDataset(data_name, data_type='train', use_ext=use_ext)
+    train_dataset = FlowDataset(data_name, data_type='train', use_ext=use_ext, window_size=7*24)
     train_loader = data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
-    val_dataset = FlowDataset(data_name, data_type='val', use_ext=use_ext)
+    val_dataset = FlowDataset(data_name, data_type='val', use_ext=use_ext, window_size=7*24)
     val_loader = data.DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
-    test_dataset = FlowDataset(data_name, data_type='test', use_ext=use_ext)
+    test_dataset = FlowDataset(data_name, data_type='test', use_ext=use_ext, window_size=7*24)
     test_loader = data.DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, val_loader, test_loader
 
@@ -89,8 +89,6 @@ def train(load_sign):
         if test_count % 5 == 0:
             save_checkpoint(model, i, optimizer)
         test_count += 1
-        if i < 82:
-            stepLR.step()
 
 
 def test_model(i, model, criterion, val_loader, test_loader):
@@ -203,9 +201,9 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
-    min_rmse = 4.8
-    seed = 4535  # 2180
-    seed = random.randint(1, 10000)
+    min_rmse = 5.1
+    seed = 2180  # 2180
+    # seed = random.randint(1, 10000)
     args = parser.parse_args()
     test_num = args.test_num
     gpu_num = args.gpu_num
@@ -237,4 +235,5 @@ if __name__ == '__main__':
     set_logger()
     print(args)
     print('running on: {} real step=0.2, seed={}'.format(test_key, seed))
+    print('single D CNN')
     train(load)

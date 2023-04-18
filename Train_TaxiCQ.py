@@ -210,7 +210,6 @@ def load_checkpoint(model, optimizer):
 if __name__ == '__main__':
     min_rmse = 20.3
     seed = 1305 # 7132
-    # seed = random.randint(1, 10000)
     args = parser.parse_args()
     test_num = args.test_num
     gpu_num = args.gpu_num
@@ -242,4 +241,5 @@ if __name__ == '__main__':
     set_logger()
     print(args)
     print('running on: {} real step_size=20, seed={}'.format(test_key, seed))
+    print('single CNN')
     train(load)

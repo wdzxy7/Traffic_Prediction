@@ -9,7 +9,6 @@ import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
 from ResTCN_model import ResTCN
-from Parallel_Hybrid_Residual_Networks import PHRNet
 
 
 '''

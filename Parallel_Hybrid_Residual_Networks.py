@@ -223,6 +223,22 @@ class PHRNet(nn.Module):
         shape = data.shape
         return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
 
+    # For BikeNYC
+    def merge_data2(self, data, ext):
+        current_data = []
+        leak_data = []
+        day_data = []
+        T = 24
+        for i in range(1, self.trend_len + 1):
+            leak_data.append(data[:, :, 168 - i * T:169 - i * T, :, :])
+            day_data.append(data[:, :, 167 - (i - 1) * T:168 - (i - 1) * T, :, :])
+            if i < self.current_lend + 1:
+                current_data.append(data[:, :, 168 - i:169 - i, :, :])
+        leak_data.append(ext)
+        data = torch.stack(current_data + day_data + leak_data, dim=1)
+        shape = data.shape
+        return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
+
     def build_resnet(self):
         res_net = nn.ModuleList()
         for i in range(self.resnet_layers):
