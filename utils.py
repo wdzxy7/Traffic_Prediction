@@ -147,3 +147,7 @@ class FlowDataset(data.Dataset):
             fname = os.path.join(self.raw_data_path, self.data_name, 'CQ_Holiday.txt')
             with open(fname, 'r') as f:
                 self.holidays = f.readlines()
+        elif self.data_name == 'PoolTaxiBJ':
+            fname = os.path.join(self.raw_data_path, self.data_name, 'BJ_Holiday.txt')
+            with open(fname, 'r') as f:
+                self.holidays = f.readlines()
