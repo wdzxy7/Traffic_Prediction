@@ -175,7 +175,10 @@ class PHRNet(nn.Module):
         self.res_kernel_size = res_kernel_size
         self.tanh = nn.Tanh()
         self.emb = ExtEmb(self.data_h, self.data_w, ext_dim)
-        c_in = (trend_len * 2 + current_len + 1) * 2
+        if use_ext is True:
+            c_in = (trend_len * 2 + current_len + 1) * 2
+        else:
+            c_in = (trend_len * 2 + current_len) * 2
         self.up_channel = nn.Sequential(nn.Conv2d(c_in, 64, 1, 1),
                                         nn.BatchNorm2d(64),
                                         nn.LeakyReLU(inplace=True))
@@ -218,7 +221,8 @@ class PHRNet(nn.Module):
             day_data.append(data[:, :, 335 - (i - 1) * T:336 - (i - 1) * T, :, :])
             if i < self.current_lend + 1:
                 current_data.append(data[:, :, 336 - i:337 - i, :, :])
-        leak_data.append(ext)
+        if self.use_ext:
+            leak_data.append(ext)
         data = torch.stack(current_data + day_data + leak_data, dim=1)
         shape = data.shape
         return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
@@ -234,7 +238,9 @@ class PHRNet(nn.Module):
             day_data.append(data[:, :, 167 - (i - 1) * T:168 - (i - 1) * T, :, :])
             if i < self.current_lend + 1:
                 current_data.append(data[:, :, 168 - i:169 - i, :, :])
-        leak_data.append(ext)
+        if self.use_ext:
+            leak_data.append(ext)
+            leak_data.append(data[:, :, 0:1, :, :])
         data = torch.stack(current_data + day_data + leak_data, dim=1)
         shape = data.shape
         return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])

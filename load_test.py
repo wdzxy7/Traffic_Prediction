@@ -68,7 +68,7 @@ def test():
     model = PHRNet(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers,
                       res_kernel_size=res_kernel_size,
                       data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len, ext_dim=ext_dim)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path), False)
     model.to(device)
     criterion = nn.L1Loss()
     show_parameter(model)
@@ -113,7 +113,7 @@ def inverse_mmn(img):
     data_max = 1292
     data_min = 0
     if data_name == 'Taxi_Bj':
-        data_max = 1292
+        data_max = 1250
         data_min = 0
     elif data_name == 'Bike_NYC':
         data_max = 267
