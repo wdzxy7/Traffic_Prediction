@@ -156,10 +156,11 @@ class ExtEmb(nn.Module):
 
 class PHRNet(nn.Module):
     def __init__(self, sqe_rate=3, sqe_kernel_size=3, resnet_layers=5, res_kernel_size=3, data_h=32, data_w=32,
-                 use_ext=True, trend_len=7, current_len=4, ext_dim=28):
+                 use_ext=True, trend_len=7, current_len=4, ext_dim=28, nyc=False):
         super(PHRNet, self).__init__()
         # parameter
         # global
+        self.nyc = nyc
         self.heads = 1
         self.use_ext = use_ext
         self.trend_len = trend_len
@@ -200,7 +201,10 @@ class PHRNet(nn.Module):
     def forward(self, inputs, ext):
         if self.use_ext:
             ext = self.emb(ext)
-        inputs = self.merge_data(inputs, ext)
+        if self.nyc:
+            inputs = self.merge_data2(inputs, ext)
+        else:
+            inputs = self.merge_data(inputs, ext)
         output = self.up_channel(inputs)
         res_out = output
         dila_out = output
@@ -224,8 +228,8 @@ class PHRNet(nn.Module):
         if self.use_ext:
             leak_data.append(ext)
         data = torch.stack(current_data + day_data + leak_data, dim=1)
-        shape = data.shape
-        return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
+        data = torch.squeeze(data)
+        return torch.transpose(data, 2, 1)
 
     # For BikeNYC
     def merge_data2(self, data, ext):
@@ -240,10 +244,9 @@ class PHRNet(nn.Module):
                 current_data.append(data[:, :, 168 - i:169 - i, :, :])
         if self.use_ext:
             leak_data.append(ext)
-            leak_data.append(data[:, :, 0:1, :, :])
         data = torch.stack(current_data + day_data + leak_data, dim=1)
-        shape = data.shape
-        return data.view(shape[0], shape[1] * shape[2], shape[4], shape[5])
+        data = torch.squeeze(data)
+        return torch.transpose(data, 2, 1)
 
     def build_resnet(self):
         res_net = nn.ModuleList()

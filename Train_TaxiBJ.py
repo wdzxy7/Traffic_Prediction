@@ -8,15 +8,16 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-from Parallel_Hybrid_Residual_Networks import PHRNet
+from Parallel_Convolution_Networks import PHRNet
+from ResTCN_model import ResTCN
 
 
 parser = argparse.ArgumentParser(description='Parameters for my model')
-parser.add_argument('--sqe_rate', type=int, default=3, help='The squeeze rate of CovBlockAttentionNet')
-parser.add_argument('--sqe_kernel_size', type=int, default=3, help='The kernel size of CovBlockAttentionNet')
+parser.add_argument('--sqe_rate', type=int, default=3, help='not use The squeeze rate of CovBlockAttentionNet')
+parser.add_argument('--sqe_kernel_size', type=int, default=2, help='not use The kernel size of CovBlockAttentionNet')
 parser.add_argument('--resnet_layers', type=int, default=4, help='Number of layers of week and day data in ResNet')
 parser.add_argument('--res_kernel_size', type=int, default=3, help='ResUnit kernel size')
-parser.add_argument('--ext_dim', type=int, default=4, help='The dim of external data')
+parser.add_argument('--ext_dim', type=int, default=28, help='The dim of external data')
 parser.add_argument('--use_ext', type=bool, default=True, help='Whether use external data')
 parser.add_argument('--trend_day', type=int, default=7, help='The length of trend and leak data')
 parser.add_argument('--current_day', type=int, default=5, help='The length of current data')
@@ -27,8 +28,8 @@ parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay 
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiBJ', help='Train data name')
-parser.add_argument('--gpu_num', type=int, default=4, help='Choose which GPU to use')
-parser.add_argument('--test_num', type=str, default='10', help='Just for test')
+parser.add_argument('--gpu_num', type=int, default=7, help='Choose which GPU to use')
+parser.add_argument('--test_num', type=str, default='9', help='Just for test')
 
 
 def load_data():
@@ -59,8 +60,9 @@ def get_h_w():
 def train(load_sign):
     train_loader, val_loader, test_loader = load_data()
     data_h, data_w = get_h_w()
-    model = PHRNet(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
-                      data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len)
+    # model = PHRNet(sqe_rate=sqe_rate, sqe_kernel_size=sqe_kernel_size, resnet_layers=resnet_layers, res_kernel_size=res_kernel_size,
+    #                   data_h=data_h, data_w=data_w, use_ext=use_ext, trend_len=trend_len, current_len=current_len)
+    model = ResTCN()
     model.to(device)
     # criterion = nn.MSELoss()
     criterion = nn.L1Loss()
@@ -142,14 +144,17 @@ def cal_rmse(model, criterion, data_loader):
 def inverse_mmn(img):
     data_max = 1292
     data_min = 0
-    if data_name == 'Taxi_Bj':
+    if data_name == 'TaxiBJ':
         data_max = 1292
         data_min = 0
-    elif data_name == 'Bike_NYC':
+    elif data_name == 'BikeNYC':
         data_max = 267
         data_min = 0
-    elif data_name == 'Taxi_NYC':
+    elif data_name == 'TaxiNYC':
         data_max = 1852
+        data_min = 0
+    elif data_name == 'PoolBJ':
+        data_max = 3082
         data_min = 0
     img = (img + 1.) / 2.
     img = 1. * img * (data_max - data_min) + data_min
@@ -159,7 +164,7 @@ def inverse_mmn(img):
 def show_parameter(model):
     par = list(model.parameters())
     s = sum([np.prod(list(d.size())) for d in par])
-    print("Parameter of 3DRTCN:", s)
+    print("Parameter of PHRNet:", s)
 
 
 def set_logger():
@@ -203,8 +208,9 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
-    min_rmse = 16.30069473853743
+    min_rmse = 16.0001
     seed = 7687
+    seed = random.randint(1, 10000)
     args = parser.parse_args()
     test_num = args.test_num
     gpu_num = args.gpu_num

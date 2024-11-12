@@ -1,6 +1,8 @@
 import os
 import random
 import sys
+import time
+
 import torch
 import logging
 import argparse
@@ -8,7 +10,7 @@ import numpy as np
 import torch.nn as nn
 from utils import FlowDataset
 import torch.utils.data as data
-from Parallel_Hybrid_Residual_Networks import PHRNet
+from Parallel_Convolution_Networks import PHRNet
 
 
 parser = argparse.ArgumentParser(description='Parameters for my model')
@@ -27,7 +29,7 @@ parser.add_argument('--weight_decay', type=float, default=0, help='Weight_decay 
 parser.add_argument('--load', type=bool, default=False, help='Whether load checkpoint')
 parser.add_argument('--check_point', type=int, default=False, help='Checkpoint')
 parser.add_argument('--data_name', type=str, default='TaxiCQ', help='Train data name')
-parser.add_argument('--gpu_num', type=int, default=4, help='Choose which GPU to use')
+parser.add_argument('--gpu_num', type=int, default=3, help='Choose which GPU to use')
 parser.add_argument('--test_num', type=str, default='1', help='Just for test')
 
 
@@ -88,7 +90,9 @@ def train(load_sign):
             loss.backward()
             optimizer.step()
             sys.stdout.write("\rTRAINDATE:  Epoch:{}\t\t loss:{} res train:{}".format(i, loss.item(), train_len - _))
-        test_model(i, model, criterion, val_loader, test_loader)
+        rmse = test_model(i, model, criterion, val_loader, test_loader)
+        if i > 5 and rmse > 170:
+            return
         if test_count % 5 == 0:
             save_checkpoint(model, i, optimizer)
         test_count += 1
@@ -111,10 +115,11 @@ def test_model(i, model, criterion, val_loader, test_loader):
         print('\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, test_RMSE, test_MAE, loss))
         mess = '\tTESTDATE'.ljust(12), '\tEpoch:{}\t\tRMSE:     {} \t\tMAE:     {} \t loss:{}'.format(i, test_RMSE, test_MAE, loss)
         logger.info(str(mess))
-        if test_RMSE < min_rmse:
-            min_rmse = test_RMSE
-            path = os.path.join(model_path, model_save.format(data_name, test_key))
-            torch.save(model.state_dict(), path)
+
+        min_rmse = test_RMSE
+        path = os.path.join(model_path, model_save.format(data_name, test_key))
+        torch.save(model.state_dict(), path)
+    return val_RMSE
 
 
 def cal_rmse(model, criterion, data_loader):
@@ -164,7 +169,7 @@ def inverse_mmn(img):
 def show_parameter(model):
     par = list(model.parameters())
     s = sum([np.prod(list(d.size())) for d in par])
-    print("Parameter of 3DRTCN:", s)
+    print("Parameter of PHRNet:", s)
 
 
 def set_logger():
@@ -208,38 +213,39 @@ def load_checkpoint(model, optimizer):
 
 
 if __name__ == '__main__':
-    min_rmse = 20.3
-    seed = 1305 # 7132
-    args = parser.parse_args()
-    test_num = args.test_num
-    gpu_num = args.gpu_num
-    log_save = 'run_{}_log_{}.log'
-    model_save = 'model_{}_parameter_{}.pkl'
-    check_save = 'model_{}_{:03d}_{}.pt'
-    test_key = 'test' + test_num
-    #  global parameters
-    device = torch.device(gpu_num)
-    torch.manual_seed(seed)
-    # model parameters
-    sqe_rate = args.sqe_rate
-    sqe_kernel_size = args.sqe_kernel_size
-    resnet_layers = args.resnet_layers
-    res_kernel_size = args.res_kernel_size
-    use_ext = args.use_ext
-    ext_dim = args.ext_dim
-    trend_len = args.trend_day
-    current_len = args.current_day
-    # train parameters
-    lr = args.lr
-    batch_size = args.batch_size
-    weight_decay = args.weight_decay
-    epochs = args.epochs
-    load = args.load
-    check_point = args.check_point
-    data_name = args.data_name
-    logger = logging.getLogger(__name__)
-    set_logger()
-    print(args)
-    print('running on: {} real step_size=20, seed={}'.format(test_key, seed))
-    print('single CNN')
-    train(load)
+    for i in range(100):
+        # min_rmse = 25
+        seed = 5976 # 7132
+        seed = random.randint(1, 10000)
+        args = parser.parse_args()
+        test_num = args.test_num
+        gpu_num = args.gpu_num
+        log_save = 'run_{}_log_{}.log'
+        model_save = 'model_{}_parameter_{}.pkl'
+        check_save = 'model_{}_{:03d}_{}.pt'
+        test_key = 'test' + test_num
+        #  global parameters
+        device = torch.device(gpu_num)
+        torch.manual_seed(seed)
+        # model parameters
+        sqe_rate = args.sqe_rate
+        sqe_kernel_size = args.sqe_kernel_size
+        resnet_layers = args.resnet_layers
+        res_kernel_size = args.res_kernel_size
+        use_ext = args.use_ext
+        ext_dim = args.ext_dim
+        trend_len = args.trend_day
+        current_len = args.current_day
+        # train parameters
+        lr = args.lr
+        batch_size = args.batch_size
+        weight_decay = args.weight_decay
+        epochs = args.epochs
+        load = args.load
+        check_point = args.check_point
+        data_name = args.data_name
+        logger = logging.getLogger(__name__)
+        set_logger()
+        print(args)
+        print('End concat: {} real step_size=20, seed={}'.format(test_key, seed))
+        train(load)
